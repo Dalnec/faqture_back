@@ -19,6 +19,19 @@ app.use(routerDocuments);
 app.use(routerTenants);
 app.use(routerCompanies);
 
+
+const xlsx = require('xlsx');
+const leerExcel = (ruta) => {
+    // const ruta = req.body.ruta;
+    const workbook = xlsx.readFile(ruta);
+    const workbootSheets = workbook.SheetNames;
+
+    const sheet = workbootSheets[1];
+    const dataExcel = xlsx.utils.sheet_to_json(workbook.Sheets[sheet]);
+
+    console.log(dataExcel);
+}
+// leerExcel('faqture.xlsx');
 // handling errors
 app.use((err, req, res, next) => {
     return res.status(500).json({

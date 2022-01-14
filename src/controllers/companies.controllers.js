@@ -121,6 +121,42 @@ const generateToken = async(req, res, next) => {
     }
 }
 
+const xlsx = require('xlsx');
+
+const leerExcel = async(req, res, next) => {
+    // const ruta = req.body.ruta;
+    const workbook = xlsx.readFile('faqture.xlsx');
+    const workbootSheets = workbook.SheetNames;
+
+    const sheet = workbootSheets[1];
+    const dataExcel = xlsx.utils.sheet_to_json(workbook.Sheets[sheet]);
+
+    dataExcel.forEach( async (data) => {
+        const localtoken = await encryptPasword(data.tenant)
+        const now = new Date()
+
+        const response = await pool.query(
+            `INSERT INTO company(created, modified, company_number, company, url, token, localtoken, tenant) 
+            VALUES ( $1, $2, $3, $4, $5, $6, $7, $8)`,
+            [ now, now, data.company_number, data.company, data.url, data.token, localtoken, data.tenant]);
+
+        const createdTenant = await createTenantCompany(data.tenant);
+
+        if (!createdTenant) {
+            console.log("No tenant created");
+        } else
+            console.log("Created", data.tenant);
+    });
+
+    res.json({
+        state: 'success',
+        message: "Companies Created"
+    });
+    // console.log(dataExcel);
+    // res.json({
+    //     dataExcel
+    // })
+}
 
 module.exports = {
     getCompaniestByFilters, 
@@ -130,4 +166,5 @@ module.exports = {
     deleteCompany,
     generateToken,
     getCompaniesList,
+    leerExcel,
 };
