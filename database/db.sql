@@ -9,8 +9,11 @@ CREATE TABLE company(
     modified timestamp with time zone NOT NULL,
     company_number character varying(20) NOT NULL,
     company character varying(255) NOT NULL,
+    tenant character varying(150) NOT NULL UNIQUE, --UNIQUE(tenant)
     url character varying(255),
-    token character varying(255),
+    apitoken character varying(255),
+    localtoken character varying(255),
+    --state
     PRIMARY KEY (id_company)
 );
 
@@ -31,8 +34,34 @@ CREATE TABLE document(
     response_send jsonb,
     response_anulate jsonb,
 	id_company bigint,
-    PRIMARY KEY (id_document),
+    PRIMARY KEY (id_document)
     -- CONSTRAINT company_document_fk
     --     FOREIGN KEY(id_company) 
     --     REFERENCES company(id_company)
 );
+
+CREATE TABLE public.user(
+    id_user SERIAL,
+    created timestamp with time zone NOT NULL,
+    modified timestamp with time zone NOT NULL,
+    username character varying(20) NOT NULL,
+    password character varying(255) NOT NULL,
+    email character varying(255),
+    type character varying(50) NOT NULL,
+    PRIMARY KEY (id_user),
+    id_company bigint,
+    CONSTRAINT company_document_fk
+        FOREIGN KEY(id_company) 
+        REFERENCES company(id_company)
+);
+
+--ALTER/UPDATE COLUMN
+ALTER TABLE public.user ALTER COLUMN password TYPE varchar(255);
+
+--ADD COLUMN
+ALTER TABLE public.company 
+ADD COLUMN localtoken varying(255) constraint;
+
+--DROP COLUMN
+ALTER TABLE public.user 
+DROP COLUMN token

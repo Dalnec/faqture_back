@@ -1,6 +1,7 @@
 const express = require('express');
 const cors = require("cors");
 const morgan = require("morgan");
+const routerAuth = require('./routes/auth.routes')
 const routerDocuments = require('./routes/documents.routes')
 const routerTenants = require('./routes/tenants.routes')
 const routerCompanies = require('./routes/companies.routes')
@@ -13,6 +14,7 @@ app.use(express.json());
 app.use(express.urlencoded({ extended: false }));
 
 //routes
+app.use(routerAuth);
 app.use(routerDocuments);
 app.use(routerTenants);
 app.use(routerCompanies);

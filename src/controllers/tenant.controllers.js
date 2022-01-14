@@ -62,6 +62,40 @@ const createTenant = async (req, res, next) => {
     
 };
 
+const createTenantCompany = async (schema) => {
+    try {
+        await pool.query(`CREATE SCHEMA IF NOT EXISTS ${schema} AUTHORIZATION faqture`); 
+        await pool.query( 
+            `CREATE TABLE ${schema}.document(
+                id_document SERIAL,
+                created timestamp with time zone NOT NULL,
+                modified timestamp with time zone NOT NULL,
+                date VARCHAR(10),
+                cod_sale bigint NOT NULL,
+                type VARCHAR(2),
+                serie VARCHAR(5),
+                numero bigint NOT NULL,
+                customer_number character varying(20) NOT NULL,
+                customer character varying(255) NOT NULL,
+                amount numeric(10,2) NOT NULL,
+                states VARCHAR(1),
+                json_format jsonb,
+                response_send jsonb,
+                response_anulate jsonb,
+                id_company bigint,
+                PRIMARY KEY (id_document)
+            );`
+        ); 
+
+        return true
+
+    } catch (error) {
+        console.log(error.message);
+        return false
+    }
+    
+};
+
 const deleteTenant = async (req, res, next) => {
     const { schema } = req.params;
     console.log(schema);
@@ -74,5 +108,6 @@ const deleteTenant = async (req, res, next) => {
 module.exports = {
     getTenant,
     createTenant,
-    deleteTenant
+    deleteTenant,
+    createTenantCompany,
 };
