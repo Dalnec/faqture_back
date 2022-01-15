@@ -3,7 +3,7 @@ CREATE SCHEMA prueba1
 
 CREATE DATABASE faqturedb
 
-CREATE TABLE company(
+CREATE TABLE public.company(
     id_company SERIAL,
     created timestamp with time zone NOT NULL,
     modified timestamp with time zone NOT NULL,
@@ -11,17 +11,20 @@ CREATE TABLE company(
     company character varying(255) NOT NULL,
     tenant character varying(150) NOT NULL UNIQUE, --UNIQUE(tenant)
     url character varying(255),
-    apitoken character varying(255),
+    token character varying(255),
     localtoken character varying(255),
-    --state
+    state BOOLEAN NOT NULL DEFAULT TRUE,
     PRIMARY KEY (id_company)
 );
 
 CREATE TABLE document(
     id_document SERIAL,
-    created timestamp with time zone NOT NULL,
-    modified timestamp with time zone NOT NULL,
-    date VARCHAR(10),
+    created timestamp NOT NULL,
+    --created timestamp with time zone NOT NULL,
+    modified timestamp NOT NULL,
+    --modified timestamp with time zone NOT NULL,
+    -- date VARCHAR(10),
+    date timestamp NOT NULL,
     cod_sale bigint NOT NULL,
     type VARCHAR(2),
     serie VARCHAR(5),
@@ -35,6 +38,7 @@ CREATE TABLE document(
     response_anulate jsonb,
 	id_company bigint,
     PRIMARY KEY (id_document)
+    UNIQUE (serie, numero)
     -- CONSTRAINT company_document_fk
     --     FOREIGN KEY(id_company) 
     --     REFERENCES company(id_company)
@@ -44,15 +48,16 @@ CREATE TABLE public.user(
     id_user SERIAL,
     created timestamp with time zone NOT NULL,
     modified timestamp with time zone NOT NULL,
-    username character varying(20) NOT NULL,
+    username character varying(20) NOT NULL, --UNIQUE?
     password character varying(255) NOT NULL,
     email character varying(255),
     type character varying(50) NOT NULL,
     PRIMARY KEY (id_user),
-    id_company bigint,
-    CONSTRAINT company_document_fk
-        FOREIGN KEY(id_company) 
-        REFERENCES company(id_company)
+    id_company jsonb
+    -- id_company bigint,
+    -- CONSTRAINT company_document_fk
+    --     FOREIGN KEY(id_company) 
+    --     REFERENCES company(id_company)
 );
 
 --ALTER/UPDATE COLUMN

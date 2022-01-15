@@ -30,9 +30,9 @@ const createTenant = async (req, res, next) => {
         await pool.query( 
             `CREATE TABLE ${schema}.document(
                 id_document SERIAL,
-                created timestamp with time zone NOT NULL,
-                modified timestamp with time zone NOT NULL,
-                date VARCHAR(10),
+                created timestamp NOT NULL,
+                modified timestamp NOT NULL,
+                date timestamp NOT NULL,
                 cod_sale bigint NOT NULL,
                 type VARCHAR(2),
                 serie VARCHAR(5),
@@ -45,7 +45,8 @@ const createTenant = async (req, res, next) => {
                 response_send jsonb,
                 response_anulate jsonb,
                 id_company bigint,
-                PRIMARY KEY (id_document)
+                PRIMARY KEY (id_document),
+                UNIQUE (serie, numero)
             );`
         ); 
 
@@ -62,15 +63,16 @@ const createTenant = async (req, res, next) => {
     
 };
 
+//MIGRANDO DESDE EXCEL
 const createTenantCompany = async (schema) => {
     try {
         await pool.query(`CREATE SCHEMA IF NOT EXISTS ${schema} AUTHORIZATION faqture`); 
         await pool.query( 
             `CREATE TABLE ${schema}.document(
                 id_document SERIAL,
-                created timestamp with time zone NOT NULL,
-                modified timestamp with time zone NOT NULL,
-                date VARCHAR(10),
+                created timestamp NOT NULL,
+                modified timestamp NOT NULL,
+                date timestamp NOT NULL,
                 cod_sale bigint NOT NULL,
                 type VARCHAR(2),
                 serie VARCHAR(5),
@@ -83,7 +85,8 @@ const createTenantCompany = async (schema) => {
                 response_send jsonb,
                 response_anulate jsonb,
                 id_company bigint,
-                PRIMARY KEY (id_document)
+                PRIMARY KEY (id_document),
+                UNIQUE (serie, numero)
             );`
         ); 
 

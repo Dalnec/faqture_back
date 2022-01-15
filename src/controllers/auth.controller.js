@@ -2,7 +2,7 @@ const jwt = require('jsonwebtoken')
 const config = require('../config')
 const pool = require('../db')
 const {encryptPasword, comparePassword} = require('../libs/auth')
-const {setFilters, setFiltersOR} = require('../libs/functions')
+const {setFilters, setFiltersOR, setNewValues} = require('../libs/functions')
 
 const signUp = async (req, res) => {
     try {
@@ -121,4 +121,21 @@ const getUserId = async (req, res, next) => {
     
 };
 
-module.exports = {signUp, signIn, changePassword, getUsers, getUserId}
+const updateUser = async (req, res, next) => {
+    try {
+        const id = parseInt(req.params.id);
+        const newData = setNewValues(req.body)
+
+        const response = await pool.query(`UPDATE public.user SET ${newData} WHERE id_user = $1`, [id]);
+
+        res.json({
+            state: 'success',
+            message: "User Updated"
+        })
+    } catch (error) {
+        console.log(error);
+        res.json({ error });
+    }
+};
+
+module.exports = {signUp, signIn, changePassword, getUsers, getUserId, updateUser}

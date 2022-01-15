@@ -97,7 +97,9 @@ const updateCompany = async (req, res, next) => {
 const deleteCompany = async (req, res, next) => {
     try {
         const id = parseInt(req.params.id);
+        const response = await pool.query('SELECT * FROM public.company WHERE id_company = $1', [id]);
         await pool.query('DELETE FROM company where id_company = $1', [ id ]);
+        await pool.query(`DROP SCHEMA IF EXISTS ${response.rows[0].tenant} CASCADE`);
         res.json({
             state: 'success',
             message: "Company Deleted"
@@ -124,8 +126,8 @@ const generateToken = async(req, res, next) => {
 const xlsx = require('xlsx');
 
 const leerExcel = async(req, res, next) => {
-    // const ruta = req.body.ruta;
-    const workbook = xlsx.readFile('faqture.xlsx');
+    const ruta = req.body.ruta;
+    const workbook = xlsx.readFile(ruta);
     const workbootSheets = workbook.SheetNames;
 
     const sheet = workbootSheets[1];
