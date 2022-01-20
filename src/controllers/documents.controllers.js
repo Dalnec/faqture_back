@@ -84,7 +84,7 @@ const createDocument = async (req, res, next) => {
         
         // console.log(response.rows[0]);
 
-        res.json({
+        res.status(200).json({
             success: true,
             data: {
                 cod_sale: response.rows[0].cod_sale,
@@ -93,7 +93,7 @@ const createDocument = async (req, res, next) => {
             }    
         })
     } catch (error) {
-        res.json({
+        res.status(401).json({
             success: false,
             data: {
                 error
