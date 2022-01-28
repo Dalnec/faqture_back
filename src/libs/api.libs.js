@@ -1,8 +1,11 @@
+const https = require('https');
 const axios = require('axios');
-const { response } = require('express');
 
 class ApiClient {
-    constructor(url, token, agent) {
+    constructor(url, token, data) {
+        this.agent = new https.Agent({
+            rejectUnauthorized: false
+        });
         this.config = {
             method: 'post',
             url: url,
@@ -11,29 +14,35 @@ class ApiClient {
                 'Content-Type': 'application/json'
             },
             // data: data,
-            httpsAgent: agent
+            httpsAgent: this.agent
         };
         
     }
 
     async sendDocument(data){
-        this.config.data = data;
-        const res = await axios(this.config)
+        console.log(data);
+        this.config.data = JSON.parse(data);
+        let res;
+        await axios(this.config)
             .then(response => {
-                let r = response.data
-                delete r.data.qr
-
-                return {
-                    success: true,
-                    state: 'N',
-                    message: `Comprobante ${r.data.number} ${r.data.state_type_description}`,
-                    data: r
-                }
+                res = response.data
+                delete res.data.qr
             })
             .catch((error) => {
-                return error.response.data
+                res =  error.response.data;
+                // res =  { success: false, error: error.response.data};
+                // console.log(error.response.data);
             });
         return res;
+        // try {
+        //     const res = await axios(this.config);
+        //     let r = res.data
+        //     delete r.data.qr
+        //     return r;
+        // } catch (error) {
+        //     // console.log(error);
+        //     return error;
+        // }
     }
 
     // errors(error){

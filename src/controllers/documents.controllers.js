@@ -1,9 +1,9 @@
-const {setFilters, setFiltersOR, setFiltersDocs} = require('../libs/functions')
+const {setNewValues, setFiltersOR, setFiltersDocs} = require('../libs/functions')
 const pool = require('../db')
 
 const getDocuments = async (req, res, next) => {
     const tenant = req.params.tenant;
-    const response = await pool.query(`SELECT * FROM ${tenant}.document`);
+    const response = await pool.query(`SELECT * FROM ${tenant}.document ORDER BY id_document`);
     res.status(200).json(response.rows)
 }
 
@@ -39,7 +39,8 @@ const getDocumentByFilters = async (req, res, next) => {
         delete filters.page
         delete filters.itemsPerPage
         filters = setFiltersDocs(filters)
-        const response = await pool.query(`SELECT * FROM ${tenant}.document ${filters} ORDER BY id_document 
+        const response = await pool.query(`SELECT id_document, date::text, cod_sale, type, serie, numero, 
+        customer_number, customer, amount, states, json_format, response_send, response_anulate, id_company FROM ${tenant}.document ${filters} ORDER BY id_document DESC
         LIMIT ${itemsPerPage} OFFSET ${(page - 1) * itemsPerPage}`);
 
         const tocount = await pool.query(`SELECT * FROM ${tenant}.document ${filters}`)
@@ -72,7 +73,7 @@ const createDocument = async (req, res, next) => {
             numero_documento, datos_del_cliente_o_receptor, totales} = strdocument
         const now = new Date()
         const date = `${fecha_de_emision} ${hora_de_emision}`
-
+        
         const response = await pool.query(
             `INSERT INTO ${tenant}.document(created, modified, date, cod_sale, type, serie, numero, 
                 customer_number, customer, amount, states, json_format, id_company) 
@@ -80,7 +81,7 @@ const createDocument = async (req, res, next) => {
             [ now, now, date, id_venta, codigo_tipo_documento, serie_documento, 
                 numero_documento, datos_del_cliente_o_receptor.numero_documento, 
                 datos_del_cliente_o_receptor.apellidos_y_nombres_o_razon_social, 
-                totales.total_venta, 'N', req.body.document, company ]);
+                totales.total_venta, 'N', JSON.stringify(req.body.document, null, 4), company ]);
         
         // console.log(response.rows[0]);
 
@@ -105,10 +106,10 @@ const createDocument = async (req, res, next) => {
 const updateDocument = async (req, res, next) => {
     const id = parseInt(req.params.id);
     const tenant = req.params.tenant;
-    const newData = req.body;
-
-    const response =await pool.query(
-        `UPDATE ${tenant}.document SET $1 WHERE id = $2`, [newData ,id]);
+    // let newData = req.body;
+    const newData = setNewValues(req.body)
+    const response = await pool.query(
+        `UPDATE ${tenant}.document SET ${newData} WHERE id_document = $1 RETURNING *`, [id]);
     res.json({
         state: 'success',
         message: "UPDATED"

@@ -12,7 +12,7 @@ router.get('/documents/:tenant/:id', [verifyToken], getDocumentById)
 router.get('/documents-filters/:tenant', [verifyToken], getDocumentByFilters)
 router.get('/documents-filters1/:tenant', [verifyToken],getDocumentByFilters1)
 router.post('/documents/:tenant', verifyLocalToken, createDocument)
-router.put('/documents/:tenant/:id', [verifyToken], updateDocument)
+router.put('/documents/:tenant/:id', updateDocument)
 router.delete('/documents/:tenant/:id', [verifyToken], deleteDocument)
 router.get('/documents-customers/:tenant', getDocumentCustomers)
 

@@ -31,7 +31,7 @@ const setFiltersOR = (filters) => {
 const setNewValues = (values) => {
     let cadena = ''
     for (let x in values) {
-        cadena += `"${x}"='${values[x]}', `;
+        cadena += `${x}='${values[x]}', `;
     }
     return cadena.substring(0, cadena.lastIndexOf(","));
 }

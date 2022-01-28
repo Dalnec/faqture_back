@@ -1,33 +1,68 @@
 // const pool = require('../db')
 // const axios = require('axios');
-const https = require('https');
+// const https = require('https');
 const {selectApiCompanyById} = require('../libs/company.libs');
 const {ApiClient} = require('../libs/api.libs');
+const {update_document, update_document_anulate, formatAnulate} = require('../libs/document.libs');
 
 const sendDocument = async (req, res, next) => {
-    // const data = JSON.parse(req.body.json_format)
-    // const data = req.body.json_format
     const company = await selectApiCompanyById(req.body.id_company)
-    console.log(company);
-    if (!company) {
-        res.status(401).json({ success: false, message: `Company Error!` })
+    if (!company) 
+        res.status(405).json({ success: false, message: `Company Error!` })
+    
+    const api = new ApiClient(`${company.url}/api/documents`, company.token)
+    let result = await api.sendDocument(req.body.json_format)
+    
+    if (!result.success) {
+        result.state = 'X';
+        updateApiDocument(req.body.id_document, company.tenant, result)
+        return res.status(504).json(result);
     }
+    result.state = 'E';
+    if (result.data.state_type_description == 'Rechazado')
+        result.state = 'R';
+    
+    // Guardar nuevo estado del documento
+    const doc = update_document(req.body.id_document, company.tenant, result)
+    if (!doc) 
+        res.status(405).json({ success: false, message: `Document Error!` })
 
-    //ssl disabled
-    const agent = new https.Agent({
-        rejectUnauthorized: false
-    });
+    res.status(200).json({result});
+}
 
-    const api = new ApiClient(`${company.url}/api/documents`, company.token, agent)
-    const r = await api.sendDocument(req.body.json_format)
+
+const anulateDocument = async (req, res, next) => {
+    const company = await selectApiCompanyById(req.body.id_company)
+    if (!company) 
+        return res.status(405).json({ success: false, message: `Company Error!` })
+
+
+    const format = await formatAnulate(req.body.id_document, company.tenant)
+    if (!format) 
+        return res.status(405).json({ success: false, message: `Document Error!` })
+
+    //verify state in API
+    
+
+
+    const api = new ApiClient(`${company.url}/api/summaries`, company.token)
+    let r = await api.sendDocument(format)
     console.log(r);
     if (!r.success) {
-        res.status(401).json({ success: false, message: `Error Request!` })
+        // return res.status(405).json({ success: false, message: `Request Error!` })
+        return res.status(405).json(r)
     }
+    r.state = 'A';
 
+    
+    const doc = update_document_anulate(req.body.id_document, company.tenant, r)
+    if (!doc) 
+        return res.status(405).json({ success: false, message: `Document Error!` })
     //Guardar nuevo estado del documento
     res.status(200).json(r)
 }
+
+
 // const sendDocument = async (req, res, next) => {
 //     const id_company = req.body.id_company;
 //     // const data = JSON.parse(req.body.json_format)
@@ -35,7 +70,7 @@ const sendDocument = async (req, res, next) => {
 
 //     const company = await pool.query(`SELECT url, token FROM public.company WHERE id_company = $1`, [id_company]);
 //     if (!company.rowCount) {
-//         res.status(401).json({ error: "No Company found!" })
+//         res.status(405).json({ error: "No Company found!" })
 //     }
 
 //     const url = `${company.rows[0].url}/api/documents`
@@ -91,4 +126,5 @@ const sendDocument = async (req, res, next) => {
 
 module.exports = {
     sendDocument,
+    anulateDocument,
 };

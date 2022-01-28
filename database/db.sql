@@ -70,3 +70,15 @@ ADD COLUMN localtoken varying(255) constraint;
 --DROP COLUMN
 ALTER TABLE public.user 
 DROP COLUMN token
+
+
+CREATE TABLE public.tasks(
+    id_task SERIAL,
+    created timestamp NOT NULL,
+    modified timestamp NOT NULL,
+    name character varying(100),
+    state BOOLEAN NOT NULL DEFAULT FALSE,
+    on_off BOOLEAN NOT NULL DEFAULT FALSE,
+    time character varying(100),
+    PRIMARY KEY (id_task)
+);

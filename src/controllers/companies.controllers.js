@@ -1,6 +1,7 @@
 const {setFiltersORCompany, setNewValues} = require('../libs/functions')
 // const { encrypt, decrypt} = require('../libs/auth')
 const pool = require('../db')
+const {getBackup} = require('../libs/backup.libs')
 
 const { encryptPasword } = require('../libs/auth')
 const { createTenantCompany } = require('./tenant.controllers')
@@ -114,6 +115,7 @@ const deleteCompany = async (req, res, next) => {
 const generateToken = async(req, res, next) => {
     try {
         const localtoken = await encryptPasword('company')
+        // getBackup();
         res.json({
             localtoken
         })
