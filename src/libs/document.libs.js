@@ -1,4 +1,19 @@
 const pool = require('../db')
+const { ApiClient } = require('../libs/api.libs');
+const { selectAllApiCompany } = require('./company.libs');
+
+const select_all_documents = async (tenant) => {
+    try {
+        if (!tenant) { return false; }
+        const docs = await pool.query(`SELECT id_document, json_format FROM ${tenant}.document WHERE states in ('N', 'X', 'M') ORDER BY id_document limit 50`);
+        if (!docs.rowCount) { return false; }
+        return docs.rows;
+
+    } catch (error) {
+        console.log(error);
+        return false;
+    }
+}
 
 const update_document = async (id, tenant, data) => {
     try {
@@ -15,6 +30,7 @@ const update_document = async (id, tenant, data) => {
         return false;
     }
 }
+
 const update_document_anulate = async (id, tenant, data) => {
     try {
         if (!id) { return false; }
@@ -58,4 +74,70 @@ const formatAnulate = async (id, tenant) => {
     }
 }
 
-module.exports = { update_document, update_document_anulate, formatAnulate };
+
+const sendAllDocsPerCompany = async (company, api, docus) => {
+
+    let result;
+    let num_aceptados = 0;
+    let num_error = 0;
+    let num_rechazados = 0;
+
+    for (let docu of docus) {
+        result = await api.sendDocument(docu.json_format)
+        if (!result.success) {
+            result.state = 'X';
+            num_error += 1;
+
+            if (result.message.search('ya se encuentra registrado') > 0) {
+                result.state = 'E';
+            }
+            await update_document(docu.id_document, company.tenant, result)
+        }
+        else {
+            result.state = 'E';
+            if (result.data.state_type_description == 'Rechazado') {
+                result.state = 'R';
+                num_rechazados += 1;
+            }
+            // Guardar nuevo estado del documento
+            const doc = update_document(docu.id_document, company.tenant, result)
+            if (!doc)
+                num_error += 1;
+            num_aceptados += 1;
+        }
+    }
+
+    return { num_aceptados, num_error, num_rechazados }
+};
+
+
+
+const sendAllDocsAllCompanies = async () => {
+    
+    const companies = await selectAllApiCompany()
+    for (let company of companies) {
+        const docus = await select_all_documents(company.tenant)
+        if (docus.length > 0) {
+            const api = new ApiClient(`${company.url}/api/documents`, company.token)
+            let { num_aceptados, num_error, num_rechazados } = await sendAllDocsPerCompany(company, api, docus)
+            console.log({ 
+                company: company.tenant, 
+                message: 'Comprobantes Nuevos Enviados',
+                num_aceptados: `Aceptados ${num_aceptados}`,
+                num_rechazados: `Rechazados ${num_rechazados}`,
+                num_error: `Con Error ${num_error}`
+            });
+        }
+        console.log(company.tenant, "no documents");
+    }
+};
+
+
+module.exports = {
+    select_all_documents,
+    update_document,
+    update_document_anulate,
+    formatAnulate,
+    sendAllDocsPerCompany,
+    sendAllDocsAllCompanies,
+};

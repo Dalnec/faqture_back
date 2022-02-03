@@ -20,8 +20,9 @@ class ApiClient {
     }
 
     async sendDocument(data){
-        console.log(data);
-        this.config.data = JSON.parse(data);
+        // console.log(data);
+        // this.config.data = JSON.parse(data);
+        this.config.data = data;
         let res;
         await axios(this.config)
             .then(response => {

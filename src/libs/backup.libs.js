@@ -28,10 +28,10 @@ const getBackup = async () => {
             return;
         }
         console.log(`stdout: ${stdout}`);
-        console.log(`Backup created successfully`);
         await compress(backupFile);
         fs.unlinkSync(backupFile);
-        console.log("Zipped backup created");
+        console.log(`Backup created successfully`);
+        // console.log("Zipped backup created");
     });
 }
 

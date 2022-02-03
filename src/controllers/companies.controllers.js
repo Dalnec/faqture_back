@@ -1,7 +1,6 @@
 const {setFiltersORCompany, setNewValues} = require('../libs/functions')
 // const { encrypt, decrypt} = require('../libs/auth')
 const pool = require('../db')
-const {getBackup} = require('../libs/backup.libs')
 
 const { encryptPasword } = require('../libs/auth')
 const { createTenantCompany } = require('./tenant.controllers')
@@ -22,7 +21,7 @@ const getCompaniestByFilters = async (req, res, next) => {
 
         // const tocount = await pool.query(`SELECT * FROM public.company WHERE company_number LIKE '%${company}%' OR company LIKE '%${company}%'`)
 
-        const response = await pool.query(`SELECT * FROM public.company ${filters} ORDER BY id_company 
+        const response = await pool.query(`SELECT id_company, created::text, company_number, company, tenant, url, token, localtoken, state FROM public.company ${filters} ORDER BY id_company 
         LIMIT ${itemsPerPage} OFFSET ${(page - 1) * itemsPerPage}`);
 
         const tocount = await pool.query(`SELECT * FROM public.company ${filters}`)
@@ -115,7 +114,6 @@ const deleteCompany = async (req, res, next) => {
 const generateToken = async(req, res, next) => {
     try {
         const localtoken = await encryptPasword('company')
-        // getBackup();
         res.json({
             localtoken
         })
