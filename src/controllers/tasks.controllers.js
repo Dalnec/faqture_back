@@ -23,7 +23,7 @@ const getTask = async (req, res, next) => {
 const getTasks = async (req, res, next) => {
     try {
         const id = req.params.id;
-        const response = await pool.query(`SELECT id_task, modified::text, name, state, on_off, time FROM tasks`)
+        const response = await pool.query(`SELECT id_task, modified::text, name, state, on_off, time FROM tasks ORDER BY id_task`)
         res.json(response.rows);
     } catch (error) {
         console.log(error);
@@ -95,12 +95,15 @@ const deleteTask = async (req, res, next) => {
 
 
 
-const setTaskBackup = (time) => {
+const setTaskBackup = (time, res) => {
     taskBackup = cron.schedule(time, () => {
-        updateTaskOnOff(4, true)
+        updateTaskState(4, 'E')
         console.log('taskbackup running ************ ');
         // getBackup();
-        updateTaskOnOff(4, false)
+        // res.json({
+        //     success: true,
+        //     message: "Task Updated"
+        // })
     }, {
         scheduled: false,
         timezone: "America/Lima"
@@ -108,10 +111,9 @@ const setTaskBackup = (time) => {
 };
 const setTaskDocuments = (time) => {
     taskDocs = cron.schedule(time, () => {
-        updateTaskOnOff(1, true)
+        updateTaskState(1, true)
         console.log('taskDocs running ------------- ');
         // sendAllDocsAllCompanies();
-        updateTaskOnOff(1, false)
     }, {
         scheduled: false,
         timezone: "America/Lima"
@@ -119,9 +121,8 @@ const setTaskDocuments = (time) => {
 };
 const setTaskDocumentsVoided = (time) => {
     taskDocsVoided = cron.schedule(time, () => {
-        updateTaskOnOff(2, true)
+        updateTaskState(2, true)
         console.log('taskDocsVoided running ///////////// ');
-        updateTaskOnOff(2, false)
     }, {
         scheduled: false,
         timezone: "America/Lima"
@@ -129,9 +130,8 @@ const setTaskDocumentsVoided = (time) => {
 };
 const setTaskSummary = (time) => {
     taskSummary = cron.schedule(time, () => {
-        updateTaskOnOff(3, true)
+        updateTaskState(3, true)
         console.log('taskSummary running ++++++++++++ ');
-        updateTaskOnOff(3, false)
     }, {
         scheduled: false,
         timezone: "America/Lima"
@@ -140,6 +140,7 @@ const setTaskSummary = (time) => {
 
 
 const startStopTask = async (req, res, next) => {
+    let flag = true;
     try {
         const id = parseInt(req.body.id);
         // finds the scheduler db
@@ -147,7 +148,10 @@ const startStopTask = async (req, res, next) => {
         // checks whether there is a scheduler or not
         if (!scheduler.rowCount) { return res.json({ error: 'No scheduler found.' }); }
 
-        if (scheduler.rows[0].state) {
+        if (scheduler.rows[0].on_off) {
+            const taskstate = updateTaskOnOff(id, false);
+            if (!taskstate) { return res.json({ error: 'Task Updating Error!' }); }
+
             switch (scheduler.rows[0].id_task) {
                 case 1:
                     taskDocs.stop();
@@ -160,14 +164,12 @@ const startStopTask = async (req, res, next) => {
                     break;
                 case 4:
                     taskBackup.stop(); delete taskBackup;
-                    // taskBackup.stop();
+                    updateTaskState(4, 'N')
                     break;
                 default:
                     console.log("DEFAULT");
                     break;
-            }
-            const taskstate = updateTaskState(id, false);
-            if (!taskstate) { return res.json({ error: 'Task Updating Error!' }); }
+            }            
             
             return res.json({
                 success: true,
@@ -189,6 +191,7 @@ const startStopTask = async (req, res, next) => {
                 taskSummary.start();
                 break;
             case 4:
+                updateTaskState(4, 'P')
                 setTaskBackup(scheduler.rows[0].time);
                 taskBackup.start();
                 break;
@@ -196,7 +199,7 @@ const startStopTask = async (req, res, next) => {
                 console.log("DEFAULT");
                 break;
         }
-        const taskstate = updateTaskState(scheduler.rows[0].id_task, true);
+        const taskstate = updateTaskOnOff(scheduler.rows[0].id_task, true);
         if (!taskstate) { return res.json({ error: 'Task Updating Error!' }); }
 
         res.json({
@@ -204,7 +207,12 @@ const startStopTask = async (req, res, next) => {
             message: 'Task started!'
         });
     } catch (error) {
+        flag = false;
         res.json({ error: error.message });
+    // } finally {
+    //     if (!flag) {
+    //         updateTaskOnOff(req.body.id, false);
+    //     }
     }
 };
 

@@ -1,7 +1,7 @@
 CREATE SCHEMA prueba1
     AUTHORIZATION faqture;
 
-CREATE DATABASE faqturedb
+CREATE DATABASE faqturedb;
 
 CREATE TABLE public.company(
     id_company SERIAL,
@@ -77,7 +77,7 @@ CREATE TABLE public.tasks(
     created timestamp NOT NULL,
     modified timestamp NOT NULL,
     name character varying(100),
-    state BOOLEAN NOT NULL DEFAULT FALSE,
+    state varchar(1) DEFAULT 'N',
     on_off BOOLEAN NOT NULL DEFAULT FALSE,
     time character varying(100),
     PRIMARY KEY (id_task)
