@@ -97,9 +97,9 @@ const deleteTask = async (req, res, next) => {
 
 const setTaskBackup = (time, res) => {
     taskBackup = cron.schedule(time, () => {
-        updateTaskState(4, 'E')
+        // updateTaskState(4, 'E')
         console.log('taskbackup running ************ ');
-        // getBackup();
+        getBackup();
         // res.json({
         //     success: true,
         //     message: "Task Updated"
@@ -163,8 +163,8 @@ const startStopTask = async (req, res, next) => {
                     taskSummary.stop();
                     break;
                 case 4:
-                    taskBackup.stop(); delete taskBackup;
                     updateTaskState(4, 'N')
+                    taskBackup.stop(); delete taskBackup;
                     break;
                 default:
                     console.log("DEFAULT");
@@ -305,5 +305,6 @@ module.exports = {
     deleteTask,
     startStopTask,
     createBackup,
+    updateTaskState,
     // destroyTask,
 }

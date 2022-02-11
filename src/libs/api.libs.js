@@ -45,6 +45,20 @@ class ApiClient {
         //     return error;
         // }
     }
+    async getListDocumentByDate(url){
+        this.config.method = 'get';
+        this.config.url = url;
+        // console.log(this.config.url);
+        let res;
+        await axios(this.config)
+            .then(response => {
+                res = response.data
+            })
+            .catch((error) => {
+                res =  error.response.data;
+            });
+        return res;
+    }
 
     // errors(error){
     //     if (error.response) {

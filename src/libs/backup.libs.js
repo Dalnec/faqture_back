@@ -17,7 +17,6 @@ const backupFile = `faqturedb.backup`;
 
 // writing postgresql backup function
 const getBackup = async () => {
-
     await exec(`pg_dump -d ${database} -p ${dbPort} -U ${username} -h ${dbHost} -F t -f ${backupFile}`, async (error, stdout, stderr) => {
         if (error) {
             console.log(`error: ${error.message}`);
@@ -31,7 +30,7 @@ const getBackup = async () => {
         await compress(backupFile);
         fs.unlinkSync(backupFile);
         console.log(`Backup created successfully`);
-        // console.log("Zipped backup created");
+        console.log("Zipped backup created");
     });
 }
 
