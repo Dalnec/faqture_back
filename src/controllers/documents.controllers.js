@@ -105,6 +105,7 @@ const createDocument = async (req, res, next) => {
 };
 
 const updateApiDocument = async (req, res, next) => {
+    // use to update state to anulate
     try {
         const id = parseInt(req.params.id);
         const tenant = req.params.tenant;
@@ -115,6 +116,12 @@ const updateApiDocument = async (req, res, next) => {
         let code = 200;
         // verify actual state
         const doc = await pool.query(`SELECT * FROM ${tenant}.document WHERE cod_sale=$1`, [id]);
+        if (doc.rowCount <= 0) {
+            return res.status(401).json({
+                success: false,
+                message: id + " Document not found!"
+            })
+        }
         switch (doc.rows[0].states) {
             case 'A':
                 message = 'Document Already Annulled!';
@@ -136,10 +143,9 @@ const updateApiDocument = async (req, res, next) => {
                 code = 405;
                 break;
         }
-
         if (message != '')
-            return res.status(code).json({ 
-                success: false, 
+            return res.status(code).json({
+                success: false,
                 data: {
                     cod_sale: doc.rows[0].cod_sale,
                     filename: `${doc.rows[0].type}-${doc.rows[0].serie}-${doc.rows[0].numero}`,

@@ -2,7 +2,7 @@ const pool = require('../db')
 const cron = require('node-cron');
 const { setNewValues } = require('../libs/functions')
 const { getBackup } = require('../libs/backup.libs');
-const { sendAllDocsAllCompanies } = require('../libs/document.libs');
+const { sendAllDocsAllCompanies, sendAllAnulateDocsAllCompanies } = require('../libs/document.libs');
 let taskBackup;
 let taskDocs;
 let taskDocsVoided;
@@ -111,9 +111,9 @@ const setTaskBackup = (time, res) => {
 };
 const setTaskDocuments = (time) => {
     taskDocs = cron.schedule(time, () => {
-        updateTaskState(1, true)
+        // updateTaskState(1, E)
         console.log('taskDocs running ------------- ');
-        // sendAllDocsAllCompanies();
+        sendAllDocsAllCompanies();
     }, {
         scheduled: false,
         timezone: "America/Lima"
@@ -121,8 +121,9 @@ const setTaskDocuments = (time) => {
 };
 const setTaskDocumentsVoided = (time) => {
     taskDocsVoided = cron.schedule(time, () => {
-        updateTaskState(2, true)
+        // updateTaskState(2, E)
         console.log('taskDocsVoided running ///////////// ');
+        sendAllAnulateDocsAllCompanies()
     }, {
         scheduled: false,
         timezone: "America/Lima"
@@ -130,7 +131,7 @@ const setTaskDocumentsVoided = (time) => {
 };
 const setTaskSummary = (time) => {
     taskSummary = cron.schedule(time, () => {
-        updateTaskState(3, true)
+        // updateTaskState(3, E)
         console.log('taskSummary running ++++++++++++ ');
     }, {
         scheduled: false,
@@ -154,13 +155,16 @@ const startStopTask = async (req, res, next) => {
 
             switch (scheduler.rows[0].id_task) {
                 case 1:
-                    taskDocs.stop();
+                    updateTaskState(1, 'N')
+                    taskDocs.stop(); delete taskDocs;
                     break;
                 case 2:
-                    taskDocsVoided.stop();
+                    updateTaskState(2, 'N')
+                    taskDocsVoided.stop(); delete taskDocsVoided;
                     break;
                 case 3:
-                    taskSummary.stop();
+                    updateTaskState(3, 'N')
+                    taskSummary.stop(); delete taskSummary;
                     break;
                 case 4:
                     updateTaskState(4, 'N')
@@ -179,14 +183,17 @@ const startStopTask = async (req, res, next) => {
 
         switch (scheduler.rows[0].id_task) {
             case 1:
+                updateTaskState(1, 'P')
                 setTaskDocuments(scheduler.rows[0].time);
                 taskDocs.start();
                 break;
             case 2:
+                updateTaskState(2, 'P')
                 setTaskDocumentsVoided(scheduler.rows[0].time);
                 taskDocsVoided.start();
                 break;
             case 3:
+                updateTaskState(3, 'P')
                 setTaskSummary(scheduler.rows[0].time);
                 taskSummary.start();
                 break;

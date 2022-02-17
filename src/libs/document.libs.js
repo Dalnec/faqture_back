@@ -192,7 +192,7 @@ const sendAllAnulateDocsPerCompany = async (company, api, listformat) => {
     for (let format of listformat) {
         result = await api.sendDocument(format)
         if (!result.success) {
-            result.state = 'Z';
+            result.state = 'Z'; //anulado con error
             num_error += 1;
         }
         else {
@@ -207,7 +207,6 @@ const sendAllAnulateDocsPerCompany = async (company, api, listformat) => {
 
     return { num_anulados, num_error }
 };
-
 
 
 const sendAllDocsAllCompanies = async () => {
@@ -230,9 +229,39 @@ const sendAllDocsAllCompanies = async () => {
     }
 };
 
+
+const sendAllAnulateDocsAllCompanies = async () => {
+    let error = 0;
+    const companies = await selectAllApiCompany()
+    for (let company of companies) {
+        const listformat = await formatAnulatePerCompany(company.tenant)
+        if (listformat.length > 0) {
+            for (let format of listformat) {
+                let ext_id = JSON.parse(format).documentos[0].external_id
+                //update state in API
+                const api_doc = await update_doc_api(ext_id, company.url)
+
+                if (api_doc)
+                    error++
+            }
+            const api = new ApiClient(`${company.url}/api/summaries`, company.token)
+
+            const { num_anulados, num_error } = await sendAllAnulateDocsPerCompany(company, api, listformat)
+
+            console.log({
+                success: true,
+                message: 'Comprobantes Enviados Anulados',
+                num_anulados: `Anulados ${num_anulados}`,
+                num_error: `Con Error ${num_error}`
+            });
+        }
+        console.log(company.tenant, "No documents");
+    }
+};
+
 const verifyingExternalIds = async (tenant, api) => {
     if (!tenant) { return false; }
-    let num_aceptados=0, num_rechazados=0, num_por_anular=0, num_anulados=0
+    let num_aceptados = 0, num_rechazados = 0, num_por_anular = 0, num_anulados = 0
     // get docs without external_ids
     const docs = await select_all_responses(tenant);
     if (!docs) { return false; }
@@ -313,4 +342,5 @@ module.exports = {
     sendAllDocsAllCompanies,
     sendAllAnulateDocsPerCompany,
     verifyingExternalIds,
+    sendAllAnulateDocsAllCompanies,
 };
