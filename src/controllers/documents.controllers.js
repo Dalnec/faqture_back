@@ -67,7 +67,8 @@ const getDocumentById = async (req, res, next) => {
 const createDocument = async (req, res, next) => {
     try {
         const tenant = req.params.tenant;
-        const strdocument = JSON.parse(req.body.document)
+        // const strdocument = JSON.parse(req.body.document)
+        const strdocument = req.body
         // console.log(req.body);
         const { company, company_number } = req.params
 
@@ -171,7 +172,6 @@ const updateApiDocument = async (req, res, next) => {
             message: error.message
         })
     }
-
 };
 
 const updateDocument = async (req, res, next) => {
