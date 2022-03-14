@@ -68,12 +68,13 @@ const createDocument = async (req, res, next) => {
     try {
         const tenant = req.params.tenant;
         // const strdocument = JSON.parse(req.body.document)
-        const strdocument = req.body
+        const strdocument = JSON.stringify(req.body, null, 4)
+        const document = req.body
         // console.log(req.body);
         const { company, company_number } = req.params
 
         const { id_venta, fecha_de_emision, hora_de_emision, codigo_tipo_documento, serie_documento,
-            numero_documento, datos_del_cliente_o_receptor, totales } = strdocument
+            numero_documento, datos_del_cliente_o_receptor, totales } = document
         const now = new Date()
         const date = `${fecha_de_emision} ${hora_de_emision}`
 
@@ -84,7 +85,7 @@ const createDocument = async (req, res, next) => {
             [now, now, date, id_venta, codigo_tipo_documento, serie_documento,
                 numero_documento, datos_del_cliente_o_receptor.numero_documento,
                 datos_del_cliente_o_receptor.apellidos_y_nombres_o_razon_social,
-                totales.total_venta, 'N', JSON.stringify(req.body.document, null, 4), company]);
+                totales.total_venta, 'N', JSON.stringify(strdocument, null, 4), company]);
 
         // console.log(response.rows[0]);
 
