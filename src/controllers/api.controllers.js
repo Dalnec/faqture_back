@@ -73,14 +73,19 @@ const anulateDocument = async (req, res, next) => {
     if (!format)
         return res.status(405).json({ success: false, message: `Document Error1!` })
 
-    const ext_id = JSON.parse(format).documentos[0].external_id
-    //update state in API
-    const api_doc = await update_doc_api(ext_id, company.url)
-    if (api_doc)
-        return res.status(405).json({ success: false, message: `API Document Error!` })
+    if ('codigo_tipo_proceso' in format) {
+        const ext_id = JSON.parse(format).documentos[0].external_id
+        //update state in API
+        const api_doc = await update_doc_api(ext_id, company.url)
+        if (api_doc)
+            return res.status(405).json({ success: false, message: `API Document Error!` })
+
+        const api = new ApiClient(`${company.url}/api/summaries`, company.token)
+    } else {
+        const api = new ApiClient(`${company.url}/api/voided`, company.token)
+    }
 
 
-    const api = new ApiClient(`${company.url}/api/summaries`, company.token)
     let r = await api.sendDocument(format)
     if (!r.success) {
         // return res.status(405).json({ success: false, message: `Request Error!` })
@@ -108,7 +113,7 @@ const anulateDocumentAll = async (req, res, next) => {
         return res.status(405).json({ success: false, message: `Documents Error!` })
     
     for (let format of listformat) {
-        if (format.codigo_tipo_proceso) {
+        if ('codigo_tipo_proceso' in format) {
             
             let ext_id = format.documentos[0].external_id
             //update state in API
@@ -120,8 +125,9 @@ const anulateDocumentAll = async (req, res, next) => {
     }    
 
     const api = new ApiClient(`${company.url}/api/summaries`, company.token)
+    const apif = new ApiClient(`${company.url}/api/voided`, company.token)
 
-    const { num_anulados, num_error } = await sendAllAnulateDocsPerCompany(company, api, listformat)
+    const { num_anulados, num_error } = await sendAllAnulateDocsPerCompany(company, api, apif, listformat)
 
     return res.status(200).json({ 
         success: true,

@@ -97,8 +97,9 @@ const formatAnulate = async (id, tenant) => {
         const doc = JSON.parse(r.rows[0].json_format);
         const res = JSON.parse(r.rows[0].response_send);
         const format = {
+            id_document: r.rows[0].id_document,
             fecha_de_emision_de_documentos: doc.fecha_de_emision,
-            ...((doc.type==='03') && {codigo_tipo_proceso: '3'}),// codigo_tipo_proceso: '3',
+            ...((doc.type === '03') && { codigo_tipo_proceso: '3' }),// codigo_tipo_proceso: '3',
             documentos: [
                 {
                     external_id: res.data.external_id,
@@ -129,7 +130,7 @@ const formatAnulatePerCompany = async (tenant) => {
             let format = {
                 id_document: doc.id_document,
                 fecha_de_emision_de_documentos: docu.fecha_de_emision,
-                ...((doc.type==='03') && {codigo_tipo_proceso: '3'}),// codigo_tipo_proceso: '3',
+                ...((doc.type === '03') && { codigo_tipo_proceso: '3' }),// codigo_tipo_proceso: '3',
                 // codigo_tipo_proceso: doc.type=='03' ? '3' : '1',
                 documentos: [
                     {
@@ -172,7 +173,7 @@ const sendAllDocsPerCompany = async (company, api, docus) => {
                 result.state = 'P';
             else
                 result.state = 'E';
-            
+
             if (result.data.state_type_description == 'Rechazado') {
                 result.state = 'R';
                 num_rechazados += 1;
@@ -188,14 +189,18 @@ const sendAllDocsPerCompany = async (company, api, docus) => {
     return { num_aceptados, num_error, num_rechazados }
 };
 
-const sendAllAnulateDocsPerCompany = async (company, api, listformat) => {
+const sendAllAnulateDocsPerCompany = async (company, api, apif, listformat) => {
 
     let result;
     let num_anulados = 0;
     let num_error = 0;
 
     for (let format of listformat) {
-        result = await api.sendDocument(format)
+        if ('codigo_tipo_proceso' in format) {
+            result = await api.sendDocument(format)
+        } else {
+            result = await apif.sendDocument(format)
+        }
         if (!result.success) {
             result.state = 'Z'; //anulado con error
             num_error += 1;
@@ -250,8 +255,9 @@ const sendAllAnulateDocsAllCompanies = async () => {
                     error++
             }
             const api = new ApiClient(`${company.url}/api/summaries`, company.token)
+            const apif = new ApiClient(`${company.url}/api/voided`, company.token)
 
-            const { num_anulados, num_error } = await sendAllAnulateDocsPerCompany(company, api, listformat)
+            const { num_anulados, num_error } = await sendAllAnulateDocsPerCompany(company, api, apif, listformat)
 
             console.log({
                 success: true,
