@@ -4,7 +4,7 @@
 const { selectApiCompanyById } = require('../libs/company.libs');
 const { ApiClient } = require('../libs/api.libs');
 const { update_doc_api } = require('../libs/connection');
-const { select_document_by_id, select_all_documents, update_document, update_document_anulate, formatAnulate, sendAllDocsPerCompany, formatAnulatePerCompany, verifyingExternalIds,  } = require('../libs/document.libs');
+const { select_document_by_id, select_all_documents, update_document, update_document_anulate, formatAnulate, sendAllDocsPerCompany, formatAnulatePerCompany, verifyingExternalIds, sendAllAnulateDocsPerCompany,  } = require('../libs/document.libs');
 
 const sendDocument = async (req, res, next) => {
     const company = await selectApiCompanyById(req.body.id_company)
@@ -108,12 +108,15 @@ const anulateDocumentAll = async (req, res, next) => {
         return res.status(405).json({ success: false, message: `Documents Error!` })
     
     for (let format of listformat) {
-        let ext_id = JSON.parse(format).documentos[0].external_id
-        //update state in API
-        const api_doc = await update_doc_api(ext_id, company.url)
-
-        if (api_doc)
-            return res.status(405).json({ success: false, message: `API Documents Error!` })
+        if (format.codigo_tipo_proceso) {
+            
+            let ext_id = format.documentos[0].external_id
+            //update state in API
+            const api_doc = await update_doc_api(ext_id, company.url)
+    
+            if (api_doc)
+                return res.status(405).json({ success: false, message: `API Documents Error!` })
+        }
     }    
 
     const api = new ApiClient(`${company.url}/api/summaries`, company.token)

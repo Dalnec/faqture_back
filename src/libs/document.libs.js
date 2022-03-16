@@ -5,7 +5,7 @@ const { selectAllApiCompany } = require('./company.libs');
 const select_document_by_id = async (id, tenant) => {
     try {
         if (!tenant) { return false; }
-        const docs = await pool.query(`SELECT id_document, json_format, states FROM ${tenant}.document WHERE id_document=$1`, [id]);
+        const docs = await pool.query(`SELECT id_document, json_format, states, type FROM ${tenant}.document WHERE id_document=$1`, [id]);
         if (!docs.rowCount) { return false; }
         return docs.rows[0];
 
@@ -44,7 +44,7 @@ const select_all_responses = async (tenant) => {
 const select_all_documents_to_anulate = async (tenant) => {
     try {
         if (!tenant) { return false; }
-        const docs = await pool.query(`SELECT id_document, json_format, states, response_send FROM ${tenant}.document WHERE states in ('P') ORDER BY id_document limit 50`);
+        const docs = await pool.query(`SELECT id_document, json_format, states, response_send, type FROM ${tenant}.document WHERE states in ('P') ORDER BY id_document limit 50`);
         if (!docs.rowCount) { return false; }
         return docs.rows;
 
@@ -91,14 +91,14 @@ const formatAnulate = async (id, tenant) => {
     try {
         if (!id) { return false; }
 
-        const r = await pool.query(`SELECT json_format, response_send FROM ${tenant}.document WHERE id_document = $1`, [id]);
+        const r = await pool.query(`SELECT json_format, response_send, type FROM ${tenant}.document WHERE id_document = $1`, [id]);
         if (!r.rowCount) { return false; }
 
         const doc = JSON.parse(r.rows[0].json_format);
         const res = JSON.parse(r.rows[0].response_send);
         const format = {
             fecha_de_emision_de_documentos: doc.fecha_de_emision,
-            codigo_tipo_proceso: '3',
+            ...((doc.type==='03') && {codigo_tipo_proceso: '3'}),// codigo_tipo_proceso: '3',
             documentos: [
                 {
                     external_id: res.data.external_id,
@@ -129,7 +129,8 @@ const formatAnulatePerCompany = async (tenant) => {
             let format = {
                 id_document: doc.id_document,
                 fecha_de_emision_de_documentos: docu.fecha_de_emision,
-                codigo_tipo_proceso: '3',
+                ...((doc.type==='03') && {codigo_tipo_proceso: '3'}),// codigo_tipo_proceso: '3',
+                // codigo_tipo_proceso: doc.type=='03' ? '3' : '1',
                 documentos: [
                     {
                         external_id: res.data.external_id,
@@ -167,7 +168,11 @@ const sendAllDocsPerCompany = async (company, api, docus) => {
             await update_document(docu.id_document, company.tenant, result)
         }
         else {
-            result.state = 'E';
+            if (docu.states == 'S')
+                result.state = 'P';
+            else
+                result.state = 'E';
+            
             if (result.data.state_type_description == 'Rechazado') {
                 result.state = 'R';
                 num_rechazados += 1;
@@ -199,7 +204,7 @@ const sendAllAnulateDocsPerCompany = async (company, api, listformat) => {
             result.state = 'A';
         }
         // Guardar nuevo estado del documento
-        const doc = update_document_anulate(docu.id_document, company.tenant, result)
+        const doc = update_document_anulate(format.id_document, company.tenant, result)
         if (!doc)
             num_error += 1;
         num_anulados += 1;
