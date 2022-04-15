@@ -28,6 +28,10 @@ const verifyLocalToken = async (req, res, next) => {
             return res.status(403).json({ error: 'No valid crendentials' });
         }
 
+        if (!company.rows[0].state) {
+            return res.status(403).json({ error: 'Por favor!, Comuniquese con su proveedor' });
+        }
+
         next();
 
     } catch (error) {

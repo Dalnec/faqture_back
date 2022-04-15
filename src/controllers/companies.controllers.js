@@ -7,7 +7,18 @@ const { createTenantCompany } = require('./tenant.controllers')
 
 const getCompaniesList = async (req, res, next) => {
     const response = await pool.query('SELECT id_company, company_number, company, tenant FROM company');
-    res.status(200).json(response.rows)
+    const list =  await Promise.all(
+        response.rows.map( async(data) => {
+        let counting = await pool.query(`SELECT count(states) FILTER (WHERE states = ANY ('{N, S, M}')) AS new
+                                                , count(states) FILTER (WHERE states = 'P') AS void
+                                                , count(states) FILTER (WHERE states = 'X') AS error
+                                        FROM ${data.tenant}.document;`);
+        data.num_new = counting.rows[0].new
+        data.num_void = counting.rows[0].void
+        data.num_error = counting.rows[0].error
+        return data
+    }))
+    res.status(200).json(list)
 }
 
 const getCompaniestByFilters = async (req, res, next) => {
@@ -15,11 +26,6 @@ const getCompaniestByFilters = async (req, res, next) => {
         const { company, page, itemsPerPage} = req.query;
 
         filters = setFiltersORCompany(company)
-        
-        // const response = await pool.query(`SELECT * FROM public.company WHERE company_number LIKE '%${company}%' OR company LIKE '%${company}%' ORDER BY id_company 
-        // LIMIT ${itemsPerPage} OFFSET ${(page - 1) * itemsPerPage}`);
-
-        // const tocount = await pool.query(`SELECT * FROM public.company WHERE company_number LIKE '%${company}%' OR company LIKE '%${company}%'`)
 
         const response = await pool.query(`SELECT id_company, created::text, company_number, company, tenant, url, token, localtoken, state FROM public.company ${filters} ORDER BY id_company 
         LIMIT ${itemsPerPage} OFFSET ${(page - 1) * itemsPerPage}`);
