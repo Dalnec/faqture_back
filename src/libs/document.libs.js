@@ -91,7 +91,7 @@ const formatAnulate = async (id, tenant) => {
     try {
         if (!id) { return false; }
 
-        const r = await pool.query(`SELECT json_format, response_send, type FROM ${tenant}.document WHERE id_document = $1`, [id]);
+        const r = await pool.query(`SELECT id_document, json_format, response_send, type FROM ${tenant}.document WHERE id_document = $1`, [id]);
         if (!r.rowCount) { return false; }
 
         const doc = JSON.parse(r.rows[0].json_format);
@@ -99,7 +99,7 @@ const formatAnulate = async (id, tenant) => {
         const format = {
             id_document: r.rows[0].id_document,
             fecha_de_emision_de_documentos: doc.fecha_de_emision,
-            ...((doc.type === '03') && { codigo_tipo_proceso: '3' }),// codigo_tipo_proceso: '3',
+            ...((r.rows[0].type == '03') && { codigo_tipo_proceso: '3' }),// codigo_tipo_proceso: '3',
             documentos: [
                 {
                     external_id: res.data.external_id,
@@ -130,7 +130,7 @@ const formatAnulatePerCompany = async (tenant) => {
             let format = {
                 id_document: doc.id_document,
                 fecha_de_emision_de_documentos: docu.fecha_de_emision,
-                ...((doc.type === '03') && { codigo_tipo_proceso: '3' }),// codigo_tipo_proceso: '3',
+                ...((docu.type == '03') && { codigo_tipo_proceso: '3' }),// codigo_tipo_proceso: '3',
                 // codigo_tipo_proceso: doc.type=='03' ? '3' : '1',
                 documentos: [
                     {
@@ -287,6 +287,7 @@ const verifyingExternalIds = async (tenant, api) => {
     for await (let docdate of docsbydate) {
         // get docs from api
         let state;
+        let state_actual = docdate.states;
         let date = JSON.parse(docdate.json_format).fecha_de_emision
         const apidocs = await api.getListDocumentByDate(`${url}${date}/${date}`);
 
@@ -331,7 +332,7 @@ const verifyingExternalIds = async (tenant, api) => {
                         pdf: element.download_pdf,
                         cdr: element.download_cdr
                     },
-                    state: state
+                    state: (state_actual=='P'&&state=='E')?state='P':state
                 }
                 await update_document(d[0].id_document, tenant, response_send);
             }

@@ -73,7 +73,7 @@ const anulateDocument = async (req, res, next) => {
     if (!format)
         return res.status(405).json({ success: false, message: `Document Error1!` })
 
-    if ('codigo_tipo_proceso' in format) {
+    if (format.hasOwnProperty('codigo_tipo_proceso')) {
         const ext_id = JSON.parse(format).documentos[0].external_id
         //update state in API
         const api_doc = await update_doc_api(ext_id, company.url)
@@ -113,7 +113,7 @@ const anulateDocumentAll = async (req, res, next) => {
         return res.status(405).json({ success: false, message: `Documents Error!` })
     
     for (let format of listformat) {
-        if ('codigo_tipo_proceso' in format) {
+        if (format.hasOwnProperty('codigo_tipo_proceso')) {
             
             let ext_id = format.documentos[0].external_id
             //update state in API
