@@ -72,7 +72,8 @@ const anulateDocument = async (req, res, next) => {
     const format = await formatAnulate(req.body.id_document, company.tenant)
     if (!format)
         return res.status(405).json({ success: false, message: `Document Error1!` })
-
+        
+    let api;
     if (format.hasOwnProperty('codigo_tipo_proceso')) {
         const ext_id = JSON.parse(format).documentos[0].external_id
         //update state in API
@@ -80,9 +81,9 @@ const anulateDocument = async (req, res, next) => {
         if (api_doc)
             return res.status(405).json({ success: false, message: `API Document Error!` })
 
-        const api = new ApiClient(`${company.url}/api/summaries`, company.token)
+        api = new ApiClient(`${company.url}/api/summaries`, company.token)
     } else {
-        const api = new ApiClient(`${company.url}/api/voided`, company.token)
+        api = new ApiClient(`${company.url}/api/voided`, company.token)
     }
 
 
