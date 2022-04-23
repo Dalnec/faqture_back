@@ -107,7 +107,7 @@ const formatAnulate = async (id, tenant) => {
                 }
             ]
         }
-        return JSON.stringify(format);
+        return format;
 
     } catch (error) {
         return false;

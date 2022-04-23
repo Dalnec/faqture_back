@@ -71,11 +71,11 @@ const anulateDocument = async (req, res, next) => {
 
     const format = await formatAnulate(req.body.id_document, company.tenant)
     if (!format)
-        return res.status(405).json({ success: false, message: `Document Error1!` })
-        
+    return res.status(405).json({ success: false, message: `Document Error1!` })
+    
     let api;
-    if (format.hasOwnProperty('codigo_tipo_proceso')) {
-        const ext_id = JSON.parse(format).documentos[0].external_id
+    if (!!format.codigo_tipo_proceso) {
+        const ext_id = format.documentos[0].external_id
         //update state in API
         const api_doc = await update_doc_api(ext_id, company.url)
         if (api_doc)
@@ -111,10 +111,10 @@ const anulateDocumentAll = async (req, res, next) => {
 
     const listformat = await formatAnulatePerCompany(company.tenant)
     if (!listformat)
-        return res.status(405).json({ success: false, message: `Documents Error!` })
+        return res.status(405).json({ success: false, message: `No hay documentos Por Anular!` })
     
     for (let format of listformat) {
-        if (format.hasOwnProperty('codigo_tipo_proceso')) {
+        if (!!format.codigo_tipo_proceso) {
             
             let ext_id = format.documentos[0].external_id
             //update state in API
