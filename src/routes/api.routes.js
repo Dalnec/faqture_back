@@ -14,6 +14,6 @@ router.post('/api-documents-all', sendDocumentAll)
 router.post('/api-documents/voided', anulateDocument)
 router.post('/api-documents-all/voided', anulateDocumentAll)
 router.post('/api-documents/verify', verifyExternalIds)
-router.post('/api-documents/verify-conn', verifyMySqlConnection)
+router.get('/api-documents/verify-conn', verifyMySqlConnection)
 
 module.exports = router;
