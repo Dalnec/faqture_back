@@ -57,8 +57,8 @@ const update_doc_api = async (ext_id, url) => {
 }
 
 const checkConnection = async (url = '') => {
-    // let sql = 'SELECT id, external_id, group_id, series, number FROM documents';
-    let sql = "SELECT id_recibo, nroserie, nrorecibo, horarecibo, iddocumentos, case when ruc!='' then ruc else '00000000' end dni_ruc, case when nombresapellidos!= '' then nombresapellidos else 'CLIENTES VARIOS' end cliente, total, usuario FROM aesanluc_tesoreria.recibos";
+    let sql = 'SELECT id, external_id, group_id, series, number FROM documents';
+    // let sql = "SELECT id_recibo, nroserie, nrorecibo, horarecibo, iddocumentos, case when ruc!='' then ruc else '00000000' end dni_ruc, case when nombresapellidos!= '' then nombresapellidos else 'CLIENTES VARIOS' end cliente, total, usuario FROM aesanluc_tesoreria.recibos";
     const conn = create_mysql_connection(url)
     return new Promise(data => {
         conn.query(sql, function (error, result) {
