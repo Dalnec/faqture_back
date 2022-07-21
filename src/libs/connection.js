@@ -12,7 +12,7 @@ const create_mysql_connection = (url) => {
                 host: process.env.DB_THOST,
                 user: process.env.DB_TUSER,
                 password: process.env.DB_TPASS,
-                database: "aesanluc_tesoreria",//"tsifactur_" + server[0],
+                database: "tsifactur_" + server[0],
                 port: process.env.DB_TPORT
             }
             break;
