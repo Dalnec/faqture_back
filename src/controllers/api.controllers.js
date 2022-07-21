@@ -160,11 +160,10 @@ const verifyExternalIds = async (req, res, next) => {
 }
 
 const verifyMySqlConnection = async (req, res, next) => {
-    const conn = checkConnection('https://demo.tsifactur.cpe.pe')
-    // const conn = checkConnection('https://frutado.faqture.com')
-    console.log(conn);
+    const conn = await checkConnection(req.query.url)
     return res.status(200).json({ 
         success: true,
+        data: conn,
     });
 }
 module.exports = {
