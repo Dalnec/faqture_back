@@ -15,6 +15,7 @@ const create_mysql_connection = (url) => {
                 database: "tsifactur_" + server[0],
                 port: process.env.DB_TPORT
             }
+            console.log(conn);
             break;
         case "faqture":
             conn = {
@@ -22,8 +23,9 @@ const create_mysql_connection = (url) => {
                 user: process.env.DB_FUSER,
                 password: process.env.DB_FPASS,
                 database: "faqture_" + server[0],
-                rt: process.env.DB_FPORT
+                port: process.env.DB_FPORT
             }
+            console.log(conn);
             break;    
         default:
             conn = {}
@@ -54,4 +56,19 @@ const update_doc_api = async (ext_id, url) => {
     });
 }
 
-module.exports = { update_doc_api };
+const checkConnection = (url) => { 
+	const conn = create_mysql_connection(url)
+	let sql = 'SELECT id, external_id, group_id, series, number FROM documents LIMIT 5';
+	conn.query(sql, [true], (error, results, fields) => {
+	if (error) {
+        console.log("ERROR");
+		return console.error(error.message);
+	}
+	console.log(results);
+	});
+
+	conn.end();
+	return results
+}
+
+module.exports = { update_doc_api, checkConnection };

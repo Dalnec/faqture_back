@@ -3,7 +3,7 @@
 // const https = require('https');
 const { selectApiCompanyById } = require('../libs/company.libs');
 const { ApiClient } = require('../libs/api.libs');
-const { update_doc_api } = require('../libs/connection');
+const { update_doc_api, checkConnection } = require('../libs/connection');
 const { select_document_by_id, select_all_documents, update_document, update_document_anulate, formatAnulate, sendAllDocsPerCompany, formatAnulatePerCompany, verifyingExternalIds, sendAllAnulateDocsPerCompany,  } = require('../libs/document.libs');
 
 const sendDocument = async (req, res, next) => {
@@ -159,11 +159,19 @@ const verifyExternalIds = async (req, res, next) => {
     });
 }
 
-
+const verifyMySqlConnection = async (req, res, next) => {
+    const conn = checkConnection('https://demo.tsifactur.cpe.pe')
+    // const conn = checkConnection('https://frutado.faqture.com')
+    console.log(conn);
+    return res.status(200).json({ 
+        success: true,
+    });
+}
 module.exports = {
     sendDocument,
     anulateDocument,
     sendDocumentAll,
     anulateDocumentAll,
     verifyExternalIds,
+    verifyMySqlConnection,
 };
