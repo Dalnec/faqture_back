@@ -145,10 +145,39 @@ const formatAnulatePerCompany = async (tenant) => {
         return listformat;
 
     } catch (error) {
+        console.log(error);
         return false;
     }
 }
 
+
+const sendDoc = async (company, docu) => {
+    const api = new ApiClient(`${company.url}/api/documents`, company.token)
+    let result = await api.sendDocument(docu.json_format)
+
+    if (!result.success) {
+        result.state = 'X';
+        if (result.message.search('ya se encuentra registrado') > 0) {
+            result.state = 'E';
+        }
+        // await update_document(docu.id_document, company.tenant, result)
+        // return res.status(504).json(result);
+    } else {
+        if (docu.states=='S')
+            result.state = 'P';
+        else
+            result.state = 'E';
+    
+        if (result.data.state_type_description == 'Rechazado')
+            result.state = 'R';
+    }
+    // Guardar nuevo estado del documento
+    const doc = await update_document(docu.id_document, company.tenant, result)
+    if (!doc)
+        result.state = 'XE';
+
+    return result;
+}
 
 const sendAllDocsPerCompany = async (company, api, docus) => {
 
@@ -179,7 +208,7 @@ const sendAllDocsPerCompany = async (company, api, docus) => {
                 num_rechazados += 1;
             }
             // Guardar nuevo estado del documento
-            const doc = update_document(docu.id_document, company.tenant, result)
+            const doc = await update_document(docu.id_document, company.tenant, result)
             if (!doc)
                 num_error += 1;
             num_aceptados += 1;
@@ -355,4 +384,5 @@ module.exports = {
     sendAllAnulateDocsPerCompany,
     verifyingExternalIds,
     sendAllAnulateDocsAllCompanies,
+    sendDoc,
 };

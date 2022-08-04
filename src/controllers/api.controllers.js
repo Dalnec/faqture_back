@@ -23,7 +23,7 @@ const sendDocument = async (req, res, next) => {
         if (result.message.search('ya se encuentra registrado') > 0) {
             result.state = 'E';
         }
-        update_document(req.body.id_document, company.tenant, result)
+        await update_document(req.body.id_document, company.tenant, result)
         return res.status(504).json(result);
     }
 
@@ -36,7 +36,7 @@ const sendDocument = async (req, res, next) => {
         result.state = 'R';
 
     // Guardar nuevo estado del documento
-    const doc = update_document(req.body.id_document, company.tenant, result)
+    const doc = await update_document(req.body.id_document, company.tenant, result)
     if (!doc)
         res.status(405).json({ success: false, message: `Document Updating Error!` })
 
@@ -113,17 +113,17 @@ const anulateDocumentAll = async (req, res, next) => {
     if (!listformat)
         return res.status(405).json({ success: false, message: `No hay documentos Por Anular!` })
     
-    for (let format of listformat) {
-        if (!!format.codigo_tipo_proceso) {
+    // for (let format of listformat) {
+    //     if (!!format.codigo_tipo_proceso) {
             
-            let ext_id = format.documentos[0].external_id
-            //update state in API
-            const api_doc = await update_doc_api(ext_id, company.url)
+    //         let ext_id = format.documentos[0].external_id
+    //         //update state in API
+    //         const api_doc = await update_doc_api(ext_id, company.url)
     
-            if (api_doc)
-                return res.status(405).json({ success: false, message: `API Documents Error!` })
-        }
-    }    
+    //         if (api_doc)
+    //             return res.status(405).json({ success: false, message: `API Documents Error!` })
+    //     }
+    // }    
 
     const api = new ApiClient(`${company.url}/api/summaries`, company.token)
     const apif = new ApiClient(`${company.url}/api/voided`, company.token)

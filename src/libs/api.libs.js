@@ -20,8 +20,6 @@ class ApiClient {
     }
 
     async sendDocument(data){
-        // console.log(data);
-        // this.config.data = JSON.parse(data);
         this.config.data = data;
         let res;
         await axios(this.config)
@@ -31,24 +29,13 @@ class ApiClient {
             })
             .catch((error) => {
                 res =  error.response.data;
-                // res =  { success: false, error: error.response.data};
-                // console.log(error.response.data);
             });
         return res;
-        // try {
-        //     const res = await axios(this.config);
-        //     let r = res.data
-        //     delete r.data.qr
-        //     return r;
-        // } catch (error) {
-        //     // console.log(error);
-        //     return error;
-        // }
     }
     async getListDocumentByDate(url){
         this.config.method = 'get';
         this.config.url = url;
-        // console.log(this.config.url);
+
         let res;
         await axios(this.config)
             .then(response => {

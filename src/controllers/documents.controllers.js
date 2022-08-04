@@ -1,6 +1,9 @@
-const { setNewValues, setFiltersOR, setFiltersDocs } = require('../libs/functions')
+// import { nanoid } from 'nanoid'
+const {nanoid} = require('nanoid')
 const pool = require('../db');
-const { select_document_by_id } = require('../libs/document.libs');
+const { setNewValues, setFiltersOR, setFiltersDocs } = require('../libs/functions')
+const { sendDoc } = require('../libs/document.libs');
+const { selectApiCompanyById } = require('../libs/company.libs');
 
 const getDocuments = async (req, res, next) => {
     const tenant = req.params.tenant;
@@ -77,24 +80,30 @@ const createDocument = async (req, res, next) => {
             numero_documento, datos_del_cliente_o_receptor, totales } = document
         const now = new Date()
         const date = `${fecha_de_emision} ${hora_de_emision}`
+        const external_id = nanoid()
 
         const response = await pool.query(
             `INSERT INTO ${tenant}.document(created, modified, date, cod_sale, type, serie, numero, 
-                customer_number, customer, amount, states, json_format, id_company) 
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13 ) RETURNING *`,
+                customer_number, customer, amount, states, json_format, id_company, external_id) 
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14 ) RETURNING *`,
             [now, now, date, id_venta, codigo_tipo_documento, serie_documento,
                 numero_documento, datos_del_cliente_o_receptor.numero_documento,
                 datos_del_cliente_o_receptor.apellidos_y_nombres_o_razon_social,
-                totales.total_venta, 'N', JSON.stringify(strdocument, null, 4), company]);
-
-        // console.log(response.rows[0]);
+                totales.total_venta, 'N', JSON.stringify(strdocument, null, 4), company, external_id]);
+        
+        let result = {}
+        const apiCompany = await selectApiCompanyById(company)
+        if (apiCompany.autosend){
+            result = await sendDoc(apiCompany, response.rows[0])
+        }
 
         res.status(200).json({
             success: true,
             data: {
                 cod_sale: response.rows[0].cod_sale,
                 filename: `${company_number}-${response.rows[0].type}-${response.rows[0].serie}-${response.rows[0].numero}`,
-                state: 'N'
+                state: result.state ? result.state : 'N',
+                external_id: external_id 
             }
         })
     } catch (error) {

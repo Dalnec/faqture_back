@@ -71,6 +71,11 @@ ADD COLUMN localtoken varying(255) constraint;
 ALTER TABLE public.user 
 DROP COLUMN token
 
+ALTER TABLE public.company
+ADD COLUMN autosend BOOLEAN NOT NULL DEFAULT FALSE;
+
+ALTER TABLE public.company 
+ADD COLUMN external_id VARCHAR(50) constraint;
 
 CREATE TABLE public.tasks(
     id_task SERIAL,
@@ -82,3 +87,22 @@ CREATE TABLE public.tasks(
     time character varying(100),
     PRIMARY KEY (id_task)
 );
+
+-- Add external_id column to all the schemas
+do
+$$
+declare
+    f record;
+begin
+	for f in SELECT nspname
+		FROM pg_namespace n
+		WHERE  nspname !~~ 'pg_%'
+		AND nspname <>  'information_schema'
+		AND nspname <>  'public'
+    loop 
+	raise notice '%', f.nspname;
+    EXECUTE 'SET LOCAL search_path = ' || f.nspname;
+    ALTER TABLE document ADD COLUMN external_id VARCHAR(50);
+    end loop;
+end;
+$$
