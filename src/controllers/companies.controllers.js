@@ -27,7 +27,7 @@ const getCompaniestByFilters = async (req, res, next) => {
 
         filters = setFiltersORCompany(company)
 
-        const response = await pool.query(`SELECT id_company, created::text, company_number, company, tenant, url, token, localtoken, state FROM public.company ${filters} ORDER BY id_company 
+        const response = await pool.query(`SELECT id_company, created::text, company_number, company, tenant, url, token, localtoken, state, autosend FROM public.company ${filters} ORDER BY id_company 
         LIMIT ${itemsPerPage} OFFSET ${(page - 1) * itemsPerPage}`);
 
         const tocount = await pool.query(`SELECT * FROM public.company ${filters}`)
@@ -56,16 +56,16 @@ const getCompanyId = async (req, res, next) => {
 
 const createCompany = async (req, res, next) => {
     try {
-        const { company_number, company, url, token, tenant} = req.body
+        const { company_number, company, url, token, tenant, autosend} = req.body
 
         // const localtoken = encrypt(tenant)
         const localtoken = await encryptPasword(tenant)
         const now = new Date()
 
         const response = await pool.query(
-            `INSERT INTO company(created, modified, company_number, company, url, token, localtoken, tenant) 
-            VALUES ( $1, $2, $3, $4, $5, $6, $7, $8)`,
-            [ now, now, company_number, company, url, token, localtoken, tenant]);
+            `INSERT INTO company(created, modified, company_number, company, url, token, localtoken, tenant, autosend) 
+            VALUES ( $1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+            [ now, now, company_number, company, url, token, localtoken, tenant, autosend]);
 
         const createdTenant = createTenantCompany(tenant);
         if (!createdTenant) {
@@ -109,6 +109,22 @@ const deleteCompany = async (req, res, next) => {
         res.json({
             state: 'success',
             message: "Company Deleted"
+        })
+    } catch (error) {
+        res.json({error: error.message});
+        next();
+    }
+};
+
+const clearCompanyDocs = async (req, res, next) => {
+    try {
+        const id = parseInt(req.params.id);
+        const response = await pool.query('SELECT * FROM public.company WHERE id_company = $1', [id]);
+        await pool.query(`DELETE FROM ${response.rows[0].tenant}.document`);
+        await pool.query(`ALTER SEQUENCE ${response.rows[0].tenant}.document_id_document_seq RESTART WITH 1`);
+        res.json({
+            state: 'success',
+            message: "Company Docs Cleared!"
         })
     } catch (error) {
         res.json({error: error.message});
@@ -175,4 +191,5 @@ module.exports = {
     generateToken,
     getCompaniesList,
     leerExcel,
+    clearCompanyDocs,
 };

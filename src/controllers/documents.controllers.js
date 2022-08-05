@@ -207,6 +207,20 @@ const deleteDocument = async (req, res, next) => {
     })
 };
 
+const clearDocuments = async (req, res, next) => {
+    try {
+        const tenant = req.params.tenant;
+        await pool.query(`DELETE FROM ${tenant}.document`);
+        await pool.query(`ALTER SEQUENCE ${tenant}.document_id_document_seq RESTART WITH 1`);
+        res.json({
+            state: 'success',
+            message: "Documents Cleared!"
+        })
+    } catch (error) {
+        res.json({error: error.message});
+        next();
+    }
+};
 
 const getDocumentCustomers = async (req, res, next) => {
     try {
@@ -236,4 +250,5 @@ module.exports = {
     getDocumentCustomers,
     getDocumentByFilters1,
     updateApiDocument,
+    clearDocuments,
 };

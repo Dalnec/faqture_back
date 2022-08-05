@@ -74,9 +74,6 @@ DROP COLUMN token
 ALTER TABLE public.company
 ADD COLUMN autosend BOOLEAN NOT NULL DEFAULT FALSE;
 
-ALTER TABLE public.company 
-ADD COLUMN external_id VARCHAR(50) constraint;
-
 CREATE TABLE public.tasks(
     id_task SERIAL,
     created timestamp NOT NULL,
