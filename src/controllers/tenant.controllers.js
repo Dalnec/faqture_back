@@ -85,6 +85,7 @@ const createTenantCompany = async (schema) => {
                 response_send jsonb,
                 response_anulate jsonb,
                 id_company bigint,
+                external_id VARCHAR(50),
                 PRIMARY KEY (id_document),
                 UNIQUE (serie, numero)
             );`

@@ -37,6 +37,7 @@ CREATE TABLE document(
     response_send jsonb,
     response_anulate jsonb,
 	id_company bigint,
+	external_id VARCHAR(50),
     PRIMARY KEY (id_document)
     UNIQUE (serie, numero)
     -- CONSTRAINT company_document_fk
@@ -99,7 +100,7 @@ begin
     loop 
 	raise notice '%', f.nspname;
     EXECUTE 'SET LOCAL search_path = ' || f.nspname;
-    ALTER TABLE document ADD COLUMN external_id VARCHAR(50);
+    ALTER TABLE document ADD COLUMN IF NOT EXISTS external_id VARCHAR(50);
     end loop;
 end;
 $$
