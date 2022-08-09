@@ -18,7 +18,7 @@ const select_document_by_id = async (id, tenant) => {
 const select_all_documents = async (tenant) => {
     try {
         if (!tenant) { return false; }
-        const docs = await pool.query(`SELECT id_document, json_format, states FROM ${tenant}.document WHERE states in ('N', 'X', 'M', 'S') ORDER BY id_document limit 10`);
+        const docs = await pool.query(`SELECT id_document, json_format, states FROM ${tenant}.document WHERE states in ('N', 'X', 'M', 'S') ORDER BY id_document limit 100`);
         if (!docs.rowCount) { return false; }
         return docs.rows;
 
