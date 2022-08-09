@@ -18,7 +18,7 @@ const select_document_by_id = async (id, tenant) => {
 const select_all_documents = async (tenant) => {
     try {
         if (!tenant) { return false; }
-        const docs = await pool.query(`SELECT id_document, json_format, states FROM ${tenant}.document WHERE states in ('N', 'X', 'M', 'S') ORDER BY id_document limit 50`);
+        const docs = await pool.query(`SELECT id_document, json_format, states FROM ${tenant}.document WHERE states in ('N', 'X', 'M', 'S') ORDER BY id_document limit 10`);
         if (!docs.rowCount) { return false; }
         return docs.rows;
 
@@ -96,6 +96,7 @@ const formatAnulate = async (id, tenant) => {
 
         const doc = JSON.parse(r.rows[0].json_format);
         const res = JSON.parse(r.rows[0].response_send);
+
         const format = {
             id_document: r.rows[0].id_document,
             fecha_de_emision_de_documentos: doc.fecha_de_emision,
@@ -107,6 +108,7 @@ const formatAnulate = async (id, tenant) => {
                 }
             ]
         }
+        console.log(format);
         return format;
 
     } catch (error) {
@@ -370,7 +372,24 @@ const verifyingExternalIds = async (tenant, api) => {
     return { num_aceptados, num_rechazados, num_por_anular, num_anulados }
 };
 
+const countingDocsState = async (tenant) => {
+    try {
+        const counting = await pool.query(`SELECT count(states) FILTER (WHERE states = ANY ('{N, S, M}')) AS num_new
+                                        , count(states) FILTER (WHERE states = 'P') AS num_void
+                                        , count(states) FILTER (WHERE states = 'X') AS num_error
+                                        , count(states) FILTER (WHERE states = 'Z') AS num_void_error
+                                FROM ${tenant}.document;`);
 
+        if (!counting.rowCount) { 
+            return false; 
+        }
+
+        return counting.rows[0]
+
+    } catch (error) {
+        return false;
+    }
+}
 
 module.exports = {
     select_document_by_id,
@@ -385,4 +404,5 @@ module.exports = {
     verifyingExternalIds,
     sendAllAnulateDocsAllCompanies,
     sendDoc,
+    countingDocsState,
 };

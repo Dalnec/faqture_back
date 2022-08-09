@@ -4,7 +4,7 @@
 const { selectApiCompanyById } = require('../libs/company.libs');
 const { ApiClient } = require('../libs/api.libs');
 const { update_doc_api, checkConnection } = require('../libs/connection');
-const { select_document_by_id, select_all_documents, update_document, update_document_anulate, formatAnulate, sendAllDocsPerCompany, formatAnulatePerCompany, verifyingExternalIds, sendAllAnulateDocsPerCompany,  } = require('../libs/document.libs');
+const { select_document_by_id, select_all_documents, update_document, update_document_anulate, formatAnulate, sendAllDocsPerCompany, formatAnulatePerCompany, verifyingExternalIds, sendAllAnulateDocsPerCompany, countingDocsState,  } = require('../libs/document.libs');
 
 const sendDocument = async (req, res, next) => {
     const company = await selectApiCompanyById(req.body.id_company)
@@ -40,6 +40,9 @@ const sendDocument = async (req, res, next) => {
     if (!doc)
         res.status(405).json({ success: false, message: `Document Updating Error!` })
 
+    const counting = await countingDocsState(company.tenant)
+    result.counting = counting
+
     res.status(200).json({ result });
 }
 
@@ -53,12 +56,15 @@ const sendDocumentAll = async (req, res, next) => {
 
     const { num_aceptados, num_error, num_rechazados } = await sendAllDocsPerCompany(company, api, docus)
 
+    const counting = await countingDocsState(company.tenant)
+
     return res.status(200).json({ 
         success: true, 
         message: 'Comprobantes Nuevos Enviados',
         num_aceptados: `Aceptados ${num_aceptados}`,
         num_rechazados: `Rechazados ${num_rechazados}`,
-        num_error: `Con Error ${num_error}`
+        num_error: `Con Error ${num_error}`,
+        counting: counting
     });
 }
 
@@ -67,7 +73,6 @@ const anulateDocument = async (req, res, next) => {
     const company = await selectApiCompanyById(req.body.id_company)
     if (!company)
         return res.status(405).json({ success: false, message: `Company Error!` })
-
 
     const format = await formatAnulate(req.body.id_document, company.tenant)
     if (!format)
@@ -98,6 +103,9 @@ const anulateDocument = async (req, res, next) => {
     const doc = update_document_anulate(req.body.id_document, company.tenant, r)
     if (!doc)
         return res.status(405).json({ success: false, message: `Document Error2!` })
+
+    const counting = await countingDocsState(company.tenant)
+    r.counting = counting
 
     res.status(200).json(r)
 }
@@ -130,11 +138,14 @@ const anulateDocumentAll = async (req, res, next) => {
 
     const { num_anulados, num_error } = await sendAllAnulateDocsPerCompany(company, api, apif, listformat)
 
+    const counting = await countingDocsState(company.tenant)
+
     return res.status(200).json({ 
         success: true,
         message: 'Comprobantes Enviados Anulados',
         num_anulados: `Anulados ${num_anulados}`,
-        num_error: `Con Error ${num_error}`
+        num_error: `Con Error ${num_error}`,
+        counting: counting
     });
 }
 
