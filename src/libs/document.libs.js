@@ -108,7 +108,6 @@ const formatAnulate = async (id, tenant) => {
                 }
             ]
         }
-        console.log(format);
         return format;
 
     } catch (error) {
