@@ -33,7 +33,7 @@ const createTenant = async (req, res, next) => {
                 created timestamp NOT NULL,
                 modified timestamp NOT NULL,
                 date timestamp NOT NULL,
-                cod_sale bigint NOT NULL,
+                cod_sale VARCHAR(100) NOT NULL,
                 type VARCHAR(2),
                 serie VARCHAR(5),
                 numero bigint NOT NULL,
@@ -45,6 +45,7 @@ const createTenant = async (req, res, next) => {
                 response_send jsonb,
                 response_anulate jsonb,
                 id_company bigint,
+                external_id VARCHAR(50),
                 PRIMARY KEY (id_document),
                 UNIQUE (serie, numero)
             );`
@@ -73,7 +74,7 @@ const createTenantCompany = async (schema) => {
                 created timestamp NOT NULL,
                 modified timestamp NOT NULL,
                 date timestamp NOT NULL,
-                cod_sale bigint NOT NULL,
+                cod_sale VARCHAR(100) NOT NULL,
                 type VARCHAR(2),
                 serie VARCHAR(5),
                 numero bigint NOT NULL,

@@ -120,18 +120,11 @@ const anulateDocumentAll = async (req, res, next) => {
     const listformat = await formatAnulatePerCompany(company.tenant)
     if (!listformat)
         return res.status(405).json({ success: false, message: `No hay documentos Por Anular!` })
-    
-    // for (let format of listformat) {
-    //     if (!!format.codigo_tipo_proceso) {
-            
-    //         let ext_id = format.documentos[0].external_id
-    //         //update state in API
-    //         const api_doc = await update_doc_api(ext_id, company.url)
-    
-    //         if (api_doc)
-    //             return res.status(405).json({ success: false, message: `API Documents Error!` })
-    //     }
-    // }    
+
+    //update state in API
+    const api_doc = await update_doc_api('', company.url)    
+    if (api_doc)
+        return res.status(405).json({ success: false, message: `API Documents Error!` })
 
     const api = new ApiClient(`${company.url}/api/summaries`, company.token)
     const apif = new ApiClient(`${company.url}/api/voided`, company.token)
@@ -171,10 +164,16 @@ const verifyExternalIds = async (req, res, next) => {
 }
 
 const verifyMySqlConnection = async (req, res, next) => {
-    const conn = await checkConnection(req.query.url)
+    const verify_data = await checkConnection(req.query.url)
+    if (!verify_data) {
+        return res.status(409).json({ 
+            success: false,
+            data: verify_data,
+        });
+    }
     return res.status(200).json({ 
         success: true,
-        data: conn,
+        data: verify_data,
     });
 }
 module.exports = {

@@ -25,7 +25,7 @@ CREATE TABLE document(
     --modified timestamp with time zone NOT NULL,
     -- date VARCHAR(10),
     date timestamp NOT NULL,
-    cod_sale bigint NOT NULL,
+    cod_sale VARCHAR(100) NOT NULL,
     type VARCHAR(2),
     serie VARCHAR(5),
     numero bigint NOT NULL,
@@ -101,6 +101,25 @@ begin
 	raise notice '%', f.nspname;
     EXECUTE 'SET LOCAL search_path = ' || f.nspname;
     ALTER TABLE document ADD COLUMN IF NOT EXISTS external_id VARCHAR(50);
+    end loop;
+end;
+$$
+
+-- Altering column "cod_sale" to all the schemas
+do
+$$
+declare
+    f record;
+begin
+	for f in SELECT nspname
+		FROM pg_namespace n
+		WHERE  nspname !~~ 'pg_%'
+		AND nspname <>  'information_schema'
+		AND nspname <>  'public'
+    loop 
+	raise notice '%', f.nspname;
+    EXECUTE 'SET LOCAL search_path = ' || f.nspname;
+    ALTER TABLE tsi.document ALTER COLUMN cod_sale TYPE VARCHAR(100);
     end loop;
 end;
 $$

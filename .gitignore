@@ -2,3 +2,4 @@ node_modules
 faqture.xlsx
 .env
 faqturedb.backup.gz
+.wwebjs_auth

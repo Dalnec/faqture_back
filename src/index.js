@@ -7,6 +7,7 @@ const routerTenants = require('./routes/tenants.routes')
 const routerCompanies = require('./routes/companies.routes')
 const routerApi = require('./routes/api.routes')
 const routerTasks = require('./routes/tasks.routes')
+const routerWhatsapp = require('./routes/whatsapp.router');
 
 const app = express()
 
@@ -22,6 +23,7 @@ app.use(routerTenants);
 app.use(routerCompanies);
 app.use(routerApi);
 app.use(routerTasks);
+app.use(routerWhatsapp);
 
 
 // handling errors

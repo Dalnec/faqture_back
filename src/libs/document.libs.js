@@ -15,6 +15,19 @@ const select_document_by_id = async (id, tenant) => {
     }
 }
 
+const select_document_by_external_id = async (external_id, tenant) => {
+    try {
+        if (!tenant) { return false; }
+        const docs = await pool.query(`SELECT id_document, json_format, response_send, states, type FROM ${tenant}.document WHERE external_id=$1`, [external_id]);
+        if (!docs.rowCount) { return false; }
+        return docs.rows[0];
+
+    } catch (error) {
+        console.log(error);
+        return false;
+    }
+}
+
 const select_all_documents = async (tenant) => {
     try {
         if (!tenant) { return false; }
@@ -236,10 +249,11 @@ const sendAllAnulateDocsPerCompany = async (company, api, apif, listformat) => {
             num_error += 1;
         }
         else {
+            const consult_anulation = await consultAnulation(result)
             result.state = 'A';
         }
         // Guardar nuevo estado del documento
-        const doc = update_document_anulate(format.id_document, company.tenant, result)
+        const doc = await update_document_anulate(format.id_document, company.tenant, result)
         if (!doc)
             num_error += 1;
         num_anulados += 1;
@@ -404,4 +418,5 @@ module.exports = {
     sendAllAnulateDocsAllCompanies,
     sendDoc,
     countingDocsState,
+    select_document_by_external_id,
 };

@@ -44,7 +44,7 @@ const getDocumentByFilters = async (req, res, next) => {
         delete filters.itemsPerPage
         filters = setFiltersDocs(filters)
         const response = await pool.query(`SELECT id_document, date::text, cod_sale, type, serie, numero, 
-        customer_number, customer, amount, states, json_format, response_send, response_anulate, id_company FROM ${tenant}.document ${filters} ORDER BY id_document DESC
+        customer_number, customer, amount, states, json_format, response_send, response_anulate, id_company, external_id FROM ${tenant}.document ${filters} ORDER BY id_document DESC
         LIMIT ${itemsPerPage} OFFSET ${(page - 1) * itemsPerPage}`);
 
         const tocount = await pool.query(`SELECT * FROM ${tenant}.document ${filters}`)
