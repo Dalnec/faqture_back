@@ -5,7 +5,7 @@ const { selectAllApiCompany } = require('./company.libs');
 const select_document_by_id = async (id, tenant) => {
     try {
         if (!tenant) { return false; }
-        const docs = await pool.query(`SELECT id_document, json_format, states, type FROM ${tenant}.document WHERE id_document=$1`, [id]);
+        const docs = await pool.query(`SELECT id_document, json_format, response_send, response_anulate, states, type FROM ${tenant}.document WHERE id_document=$1`, [id]);
         if (!docs.rowCount) { return false; }
         return docs.rows[0];
 
@@ -18,7 +18,7 @@ const select_document_by_id = async (id, tenant) => {
 const select_document_by_external_id = async (external_id, tenant) => {
     try {
         if (!tenant) { return false; }
-        const docs = await pool.query(`SELECT id_document, json_format, response_send, states, type FROM ${tenant}.document WHERE external_id=$1`, [external_id]);
+        const docs = await pool.query(`SELECT id_document, json_format, response_send, response_anulate, states, type FROM ${tenant}.document WHERE external_id=$1`, [external_id]);
         if (!docs.rowCount) { return false; }
         return docs.rows[0];
 
@@ -58,6 +58,19 @@ const select_all_documents_to_anulate = async (tenant) => {
     try {
         if (!tenant) { return false; }
         const docs = await pool.query(`SELECT id_document, json_format, states, response_send, type FROM ${tenant}.document WHERE states in ('P') ORDER BY id_document limit 50`);
+        if (!docs.rowCount) { return false; }
+        return docs.rows;
+
+    } catch (error) {
+        console.log(error);
+        return false;
+    }
+}
+
+const select_all_documents_to_consult_void = async (tenant) => {
+    try {
+        if (!tenant) { return false; }
+        const docs = await pool.query(`SELECT id_document, json_format, states, response_send, response_anulate, type FROM ${tenant}.document WHERE states = 'C' ORDER BY id_document limit 50`);
         if (!docs.rowCount) { return false; }
         return docs.rows;
 
@@ -174,21 +187,19 @@ const sendDoc = async (company, docu) => {
         if (result.message.search('ya se encuentra registrado') > 0) {
             result.state = 'E';
         }
-        // await update_document(docu.id_document, company.tenant, result)
-        // return res.status(504).json(result);
     } else {
-        if (docu.states=='S')
+        if (docu.states == 'S')
             result.state = 'P';
         else
             result.state = 'E';
-    
+
         if (result.data.state_type_description == 'Rechazado')
             result.state = 'R';
     }
     // Guardar nuevo estado del documento
     const doc = await update_document(docu.id_document, company.tenant, result)
     if (!doc)
-        result.state = 'XE';
+        result.state = 'EX'; // updating error
 
     return result;
 }
@@ -232,6 +243,40 @@ const sendAllDocsPerCompany = async (company, api, docus) => {
     return { num_aceptados, num_error, num_rechazados }
 };
 
+const consultAnulation = (format, company) => {
+    let api;
+    if (format.type == '03') {
+        api = new ApiClient(`${company.url}/api/summaries/status`, company.token)
+    } else {
+        api = new ApiClient(`${company.url}/api/voided/status`, company.token)
+    }
+    if (typeof strdatos == 'string')
+        return api.sendDocument(JSON.parse(format.data))
+    return api.sendDocument(format.data)
+}
+
+
+const sendAllConsultVoidPerCompany = async (company, docs) => {
+    let num_error = 0;
+    let num_anulados = 0;
+    let num_error_updating = 0;
+
+    for (let doc of docs) {
+        result = await consultAnulation(doc.response_anulate, company)
+        if (consult_result.success) {
+            num_anulados += 1;
+            result.state = 'A';
+            const doc = await update_document_anulate(doc.id_document, company.tenant, result)
+            if (!doc.success)
+                num_error_updating += 1;
+        } else {
+            num_error += 1;
+        }
+    }
+    return { num_anulados, num_error, num_error_updating }
+};
+
+
 const sendAllAnulateDocsPerCompany = async (company, api, apif, listformat) => {
 
     let result;
@@ -241,16 +286,24 @@ const sendAllAnulateDocsPerCompany = async (company, api, apif, listformat) => {
     for (let format of listformat) {
         if ('codigo_tipo_proceso' in format) {
             result = await api.sendDocument(format)
+            result.type = '03'
         } else {
             result = await apif.sendDocument(format)
+            result.type = '01'
         }
         if (!result.success) {
             result.state = 'Z'; //anulado con error
             num_error += 1;
         }
         else {
-            const consult_anulation = await consultAnulation(result)
-            result.state = 'A';
+            result.state = 'C';
+            if (company.autosend) {
+                consult_result = await consultAnulation(result, company)
+                if (consult_result.success) {
+                    result = consult_result;
+                    result.state = 'A';
+                }
+            }
         }
         // Guardar nuevo estado del documento
         const doc = await update_document_anulate(format.id_document, company.tenant, result)
@@ -376,7 +429,7 @@ const verifyingExternalIds = async (tenant, api) => {
                         pdf: element.download_pdf,
                         cdr: element.download_cdr
                     },
-                    state: (state_actual=='P'&&state=='E')?state='P':state
+                    state: (state_actual == 'P' && state == 'E') ? state = 'P' : state
                 }
                 await update_document(d[0].id_document, tenant, response_send);
             }
@@ -390,11 +443,12 @@ const countingDocsState = async (tenant) => {
         const counting = await pool.query(`SELECT count(states) FILTER (WHERE states = ANY ('{N, S, M}')) AS num_new
                                         , count(states) FILTER (WHERE states = 'P') AS num_void
                                         , count(states) FILTER (WHERE states = 'X') AS num_error
+                                        , count(states) FILTER (WHERE states = 'C') AS void_consult
                                         , count(states) FILTER (WHERE states = 'Z') AS num_void_error
                                 FROM ${tenant}.document;`);
 
-        if (!counting.rowCount) { 
-            return false; 
+        if (!counting.rowCount) {
+            return false;
         }
 
         return counting.rows[0]
@@ -419,4 +473,7 @@ module.exports = {
     sendDoc,
     countingDocsState,
     select_document_by_external_id,
+    consultAnulation,
+    select_all_documents_to_consult_void,
+    sendAllConsultVoidPerCompany,
 };

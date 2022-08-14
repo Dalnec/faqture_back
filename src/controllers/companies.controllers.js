@@ -12,6 +12,7 @@ const getCompaniesList = async (req, res, next) => {
         let counting = await pool.query(`SELECT count(states) FILTER (WHERE states = ANY ('{N, S, M}')) AS new
                                                 , count(states) FILTER (WHERE states = 'P') AS void
                                                 , count(states) FILTER (WHERE states = 'X') AS error
+                                                , count(states) FILTER (WHERE states = 'C') AS void_consult
                                                 , count(states) FILTER (WHERE states = 'Z') AS num_void_error
                                         FROM ${data.tenant}.document;`);
         data.num_new = counting.rows[0].new

@@ -1,10 +1,7 @@
-// const pool = require('../db')
-// const axios = require('axios');
-// const https = require('https');
 const { selectApiCompanyById } = require('../libs/company.libs');
 const { ApiClient } = require('../libs/api.libs');
 const { update_doc_api, checkConnection } = require('../libs/connection');
-const { select_document_by_id, select_all_documents, update_document, update_document_anulate, formatAnulate, sendAllDocsPerCompany, formatAnulatePerCompany, verifyingExternalIds, sendAllAnulateDocsPerCompany, countingDocsState,  } = require('../libs/document.libs');
+const { select_document_by_id, select_all_documents, update_document, update_document_anulate, formatAnulate, sendAllDocsPerCompany, formatAnulatePerCompany, verifyingExternalIds, sendAllAnulateDocsPerCompany, countingDocsState, consultAnulation, select_all_documents_to_consult_void, sendAllConsultVoidPerCompany,  } = require('../libs/document.libs');
 
 const sendDocument = async (req, res, next) => {
     const company = await selectApiCompanyById(req.body.id_company)
@@ -92,24 +89,28 @@ const anulateDocument = async (req, res, next) => {
     }
 
 
-    let r = await api.sendDocument(format)
-    if (!r.success) {
-        // return res.status(405).json({ success: false, message: `Request Error!` })
-        return res.status(405).json(r)
+    let result = await api.sendDocument(format)
+    if (!result.success) {
+        return res.status(405).json(result)
     }
-    r.state = 'A';
+    result.state = 'C';
+    if (company.autosend) {
+        consult_result = await consultAnulation(result, company)
+        if (consult_result.success) {
+            result = consult_result;
+            result.state = 'A';
+        }
+    }
 
-
-    const doc = update_document_anulate(req.body.id_document, company.tenant, r)
+    const doc = update_document_anulate(req.body.id_document, company.tenant, result)
     if (!doc)
         return res.status(405).json({ success: false, message: `Document Error2!` })
 
     const counting = await countingDocsState(company.tenant)
-    r.counting = counting
+    result.counting = counting
 
-    res.status(200).json(r)
+    res.status(200).json(result)
 }
-
 
 const anulateDocumentAll = async (req, res, next) => {
     const company = await selectApiCompanyById(req.body.id_company)
@@ -142,6 +143,47 @@ const anulateDocumentAll = async (req, res, next) => {
     });
 }
 
+const consultAnulateDocument = async (req, res, next) => {
+    const company = await selectApiCompanyById(req.body.id_company)
+    if (!company)
+        return res.status(405).json({ success: false, message: 'Company Error!' })
+    
+    const docu = await select_document_by_id(req.body.id_document, company.tenant)
+    if (!docu)
+        res.status(405).json({ success: false, message: 'Document Finding Error!' })
+    
+    const result = await consultAnulation(docu.response_anulate, company)
+    if (result.success) {
+        const doc = update_document_anulate(req.body.id_document, company.tenant, result)
+        result.state = 'A';
+
+        const counting = await countingDocsState(company.tenant)
+        result.counting = counting
+        if (doc)
+            res.status(200).json(result)
+    }
+    res.status(405).json({ success: false, message: 'Cannot consult void!' })
+}
+
+const consultAnulateDocumentAll = async (req, res, next) => {
+    const company = await selectApiCompanyById(req.body.id_company)
+    if (!company)
+        return res.status(405).json({ success: false, message: 'Company Error!' })
+    
+    const docs = await select_all_documents_to_consult_void(company.tenant)
+    if (!docs)
+        res.status(405).json({ success: false, message: 'Error finding documents!' })
+    
+    const { num_anulados, num_error, num_error_updating } = sendAllConsultVoidPerCompany(company, docs)
+    return res.status(200).json({ 
+        success: true, 
+        message: 'Comprobantes Anulados Consultados',
+        num_anulados: `Consultados ${num_aceptados}`,
+        num_error: `Con error ${num_rechazados}`,
+        num_error_updating: `No actualizado en la BD. ${num_por_anular}`,
+    });
+}
+
 const verifyExternalIds = async (req, res, next) => {
     const company = await selectApiCompanyById(req.body.id_company)
     if (!company)
@@ -150,8 +192,6 @@ const verifyExternalIds = async (req, res, next) => {
     const api = new ApiClient(`${company.url}/api/documents/lists/`, company.token)
 
     const { num_aceptados, num_rechazados, num_por_anular, num_anulados } = await verifyingExternalIds(company.tenant, api)
-    // if (!response)
-    //     return res.status(405).json({ success: false, message: `Documents Error!` })
 
     return res.status(200).json({ 
         success: true, 
@@ -179,8 +219,10 @@ const verifyMySqlConnection = async (req, res, next) => {
 module.exports = {
     sendDocument,
     anulateDocument,
+    consultAnulateDocument,
     sendDocumentAll,
     anulateDocumentAll,
+    consultAnulateDocumentAll,
     verifyExternalIds,
     verifyMySqlConnection,
 };

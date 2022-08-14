@@ -140,6 +140,9 @@ const updateApiDocument = async (req, res, next) => {
             case 'P':
                 message = 'Document To Annulled!';
                 break;
+            case 'C':
+                message = 'Document To Consult Annulled!';
+                break;
             case 'S':
                 message = 'Document To Send/Annulled!';
                 break;
