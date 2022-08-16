@@ -1,29 +1,31 @@
 const axios = require('axios');
 const { MessageMedia } = require('whatsapp-web.js');
 const qrcode = require('qrcode')
+const fs = require('fs');
 
-const sendMessages = async (req, res, next) => {}
+
+const sendMessages = async (req, res, next) => { }
 
 const sendFiles = async (req, res, next) => {
     try {
         const number = req.body.number
-        if (number.length != 9){
-            return res.json({ success: false, message: "Number no Valid!"});
+        if (number.length != 9) {
+            return res.json({ success: false, message: "Number no Valid!" });
         }
         let mimetype;
         const client = req.clientWs
         const formated_number = `51${number}@c.us`
         const links = req.links
-        for (let file in links){
+        for (let file in links) {
             const attachment = await axios.get(links[file], {
                 responseType: 'arraybuffer'
             }).then(response => {
                 mimetype = response.headers['content-type'];
                 return response.data.toString('base64');
             });
-    
+
             const media = new MessageMedia(mimetype, attachment, `${req.filename}-${file}`);
-    
+
             client.sendMessage(formated_number, media, {
                 caption: file
             }).then(response => {
@@ -32,7 +34,7 @@ const sendFiles = async (req, res, next) => {
                 console.log(err);
             });
         }
-        
+
 
         return res.json({
             success: true,
@@ -92,7 +94,7 @@ const getQR = async (req, res) => {
             client.on('qr', (qr) => {
                 console.log("Generating QR Code!");
                 qrcode.toDataURL(qr, function (err, code) {
-                    if (err) {return res.json(err.message)}
+                    if (err) { return res.json(err.message) }
                     return resolve(code)
                 });
             })
@@ -112,4 +114,21 @@ const getQR = async (req, res) => {
     }
 };
 
-module.exports = { sendMessages, sendFiles, getQR }
+const deleteAuthDirectory = (req, res) => {
+    let directoryPath = "./.wwebjs_auth"
+    const client = req.clientWs
+    client.destroy();
+    if (!fs.existsSync(directoryPath)) {
+        return res.json({
+            success: false,
+            message: "Directory no found!",
+        });
+    }
+    fs.rmSync(directoryPath, { recursive: true, force: true });
+    return res.json({
+        success: true,
+        message: "Directory Deleted!"
+    });
+}
+
+module.exports = { sendMessages, sendFiles, getQR, deleteAuthDirectory }
