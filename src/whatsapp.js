@@ -38,8 +38,8 @@ const initSessionWhatsapp = async () => {
     //     });
     // }
 
-    client.on('authenticated', (session) => {
-        console.log('AUTHENTICATED', session);
+    client.on('authenticated', () => {
+        console.log('AUTHENTICATED');
     });
 
     client.on('auth_failure', msg => {

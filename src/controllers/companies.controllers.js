@@ -18,6 +18,7 @@ const getCompaniesList = async (req, res, next) => {
         data.num_new = counting.rows[0].new
         data.num_void = counting.rows[0].void
         data.num_error = counting.rows[0].error
+        data.num_void_consult = counting.rows[0].void_consult
         data.num_void_error = counting.rows[0].num_void_error
         return data
     }))

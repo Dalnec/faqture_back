@@ -1,13 +1,13 @@
-const pool = require('../db')
+const pool = require('../db');
+const { comparePassword } = require('../libs/auth');
 
 const verifyLocalToken = async (req, res, next) => {
     try {
         // console.log(req.headers.authorization);
         if (!req.headers.authorization) {
-            return res.status(403).json({ error: 'No credentials sent!' });
+            return res.status(403).json({ error: 'No credentials!' });
         }
         const token = req.headers.authorization && req.headers.authorization.split(' ')[1]
-
 
         const tenant = req.params.tenant;
         const schema = await pool.query(`SELECT schema_name FROM information_schema.schemata WHERE schema_name = $1;`, [tenant]);        
@@ -24,7 +24,8 @@ const verifyLocalToken = async (req, res, next) => {
         req.params.company = company.rows[0].id_company
         req.params.company_number = company.rows[0].company_number
 
-        if (token !== company.rows[0].localtoken) {
+        const veryToken = await comparePassword(company.rows[0].tenant, token)
+        if (token !== company.rows[0].localtoken && !veryToken) {
             return res.status(403).json({ error: 'No valid crendentials' });
         }
 
@@ -32,7 +33,7 @@ const verifyLocalToken = async (req, res, next) => {
             return res.status(403).json({ error: 'Por favor!, Comuniquese con su proveedor' });
         }
 
-        next();
+        return next();
 
     } catch (error) {
         res.status(401).json({

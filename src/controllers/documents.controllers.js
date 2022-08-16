@@ -43,7 +43,7 @@ const getDocumentByFilters = async (req, res, next) => {
         delete filters.page
         delete filters.itemsPerPage
         filters = setFiltersDocs(filters)
-        const response = await pool.query(`SELECT id_document, date::text, cod_sale, type, serie, numero, 
+        const response = await pool.query(`SELECT id_document, TO_CHAR(date::DATE, 'yyyy-mm-dd') AS date, cod_sale, type, serie, numero, 
         customer_number, customer, amount, states, json_format, response_send, response_anulate, id_company, external_id FROM ${tenant}.document ${filters} ORDER BY id_document DESC
         LIMIT ${itemsPerPage} OFFSET ${(page - 1) * itemsPerPage}`);
 
@@ -163,7 +163,7 @@ const updateApiDocument = async (req, res, next) => {
                 data: {
                     cod_sale: doc.rows[0].cod_sale,
                     filename: `${doc.rows[0].type}-${doc.rows[0].serie}-${doc.rows[0].numero}`,
-                    state: state
+                    state: doc.rows[0].states
                 },
                 message: message
             })

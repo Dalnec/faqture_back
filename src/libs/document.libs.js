@@ -157,7 +157,7 @@ const formatAnulatePerCompany = async (tenant) => {
             let format = {
                 id_document: doc.id_document,
                 fecha_de_emision_de_documentos: docu.fecha_de_emision,
-                ...((docu.type == '03') && { codigo_tipo_proceso: '3' }),// codigo_tipo_proceso: '3',
+                ...((doc.type == '03') && { codigo_tipo_proceso: '3' }),// codigo_tipo_proceso: '3',
                 // codigo_tipo_proceso: doc.type=='03' ? '3' : '1',
                 documentos: [
                     {
@@ -243,16 +243,18 @@ const sendAllDocsPerCompany = async (company, api, docus) => {
     return { num_aceptados, num_error, num_rechazados }
 };
 
-const consultAnulation = (format, company) => {
+const consultAnulation = async (format, company) => {
     let api;
+    if (typeof format == 'string'){
+        format = JSON.parse(format)
+    }
     if (format.type == '03') {
         api = new ApiClient(`${company.url}/api/summaries/status`, company.token)
     } else {
         api = new ApiClient(`${company.url}/api/voided/status`, company.token)
-    }
-    if (typeof strdatos == 'string')
-        return api.sendDocument(JSON.parse(format.data))
-    return api.sendDocument(format.data)
+    }    
+    let res = await api.sendDocument(format.data)
+    return res
 }
 
 
@@ -263,11 +265,11 @@ const sendAllConsultVoidPerCompany = async (company, docs) => {
 
     for (let doc of docs) {
         result = await consultAnulation(doc.response_anulate, company)
-        if (consult_result.success) {
+        if (result.success) {
             num_anulados += 1;
             result.state = 'A';
-            const doc = await update_document_anulate(doc.id_document, company.tenant, result)
-            if (!doc.success)
+            let doc_consult = await update_document_anulate(doc.id_document, company.tenant, result)
+            if (!doc_consult)
                 num_error_updating += 1;
         } else {
             num_error += 1;
@@ -294,8 +296,8 @@ const sendAllAnulateDocsPerCompany = async (company, api, apif, listformat) => {
         if (!result.success) {
             result.state = 'Z'; //anulado con error
             num_error += 1;
-        }
-        else {
+        } else {
+            num_anulados += 1;
             result.state = 'C';
             if (company.autosend) {
                 consult_result = await consultAnulation(result, company)
@@ -309,7 +311,6 @@ const sendAllAnulateDocsPerCompany = async (company, api, apif, listformat) => {
         const doc = await update_document_anulate(format.id_document, company.tenant, result)
         if (!doc)
             num_error += 1;
-        num_anulados += 1;
     }
 
     return { num_anulados, num_error }
@@ -443,7 +444,7 @@ const countingDocsState = async (tenant) => {
         const counting = await pool.query(`SELECT count(states) FILTER (WHERE states = ANY ('{N, S, M}')) AS num_new
                                         , count(states) FILTER (WHERE states = 'P') AS num_void
                                         , count(states) FILTER (WHERE states = 'X') AS num_error
-                                        , count(states) FILTER (WHERE states = 'C') AS void_consult
+                                        , count(states) FILTER (WHERE states = 'C') AS num_void_consult
                                         , count(states) FILTER (WHERE states = 'Z') AS num_void_error
                                 FROM ${tenant}.document;`);
 

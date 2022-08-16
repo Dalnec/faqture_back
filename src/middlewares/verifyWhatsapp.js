@@ -1,44 +1,35 @@
-const { initSessionWhatsapp, getClient, getClient2 } = require("../whatsapp");
+const { getClient, getClient2 } = require("../whatsapp");
 
 const verifyWspClient = async (req, res, next) => {
     try {
         const client = await getClient2()
-        console.log(client)
-        if (!client) {
-            res.status(409)
-            // console.log("verifyWspClient", client)
-            res.send({ error: 'Error de client.' })
-        } else {
+        // if (!client) {
+        //     console.log("Cliente no Iniciado")
+        //     return res.status(401).json({ success: false, message: "NO WSP Session!" })
+        // }
+        if (client) {
+            console.log("Cliente INICIADO")
             req.clientWs = client;
-            next()
+            return next()
         }
+        console.log("Cliente no Iniciado")
+        return res.status(401).json({ success: false, message: "NO WSP Session!" })
+        
     } catch (e) {
         console.log(e)
-        res.status(409)
-        res.send({ error: 'Client Error' })
+        return res.status(409).send({ error: 'Client Error' })
     }
-
 }
 
 const initClient = async (req, res, next) => {
     try {
-        // const {client, init} = getClient()
         const client = await getClient()
-        console.log("initClient", client);
         req.clientWs = client
-        next()
-        // console.log(init);
-        
-        // if (!client) {
-        //     initSessionWhatsapp()
-        //     req.clientWs = getClient();            
-        //     next()
-        // }
-        // res.send({ message: 'Connection already exists' })
+        return next()
+
     } catch (e) {
         console.log(e)
-        res.status(409)
-        res.send({ error: 'Error init client' })
+        return res.status(409).send({ error: 'Error init client' })
     }
 
 }

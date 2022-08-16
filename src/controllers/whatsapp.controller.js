@@ -3,14 +3,17 @@ const { MessageMedia } = require('whatsapp-web.js');
 const qrcode = require('qrcode')
 
 const sendMessages = async (req, res, next) => {}
+
 const sendFiles = async (req, res, next) => {
     try {
-        const client = req.clientWs
+        const number = req.body.number
+        if (number.length != 9){
+            return res.json({ success: false, message: "Number no Valid!"});
+        }
         let mimetype;
-        // const number = req.params.number
-        const number = '51956455974@c.us'
+        const client = req.clientWs
+        const formated_number = `51${number}@c.us`
         const links = req.links
-        // const fileUrl = 'https://bahamas.faqture.com/downloads/document/xml/8ebe187f-e370-4a90-9707-38f255c04d43';
         for (let file in links){
             const attachment = await axios.get(links[file], {
                 responseType: 'arraybuffer'
@@ -21,25 +24,23 @@ const sendFiles = async (req, res, next) => {
     
             const media = new MessageMedia(mimetype, attachment, `${req.filename}-${file}`);
     
-            client.sendMessage(number, media, {
+            client.sendMessage(formated_number, media, {
                 caption: file
             }).then(response => {
-                console.log("****************", response.data);
+                console.log("Archivos Enviando!");
             }).catch(err => {
                 console.log(err);
             });
         }
         
 
-        res.json({
-            state: 'success',
-            message: "Message Sent!",
-            response: "",
+        return res.json({
+            success: true,
+            message: "Files Sent!",
         });
 
     } catch (error) {
-        res.json({ error: error.message });
-        next();
+        return res.json({ error: error.message });
     }
 };
 
@@ -82,38 +83,32 @@ const getQR = async (req, res) => {
             client.on('ready', () => {
                 console.log('Client is ready!');
                 init = true
-                console.log("LLEGO!!!!!");
-                res.json({
+                return res.json({
                     state: 'success',
                     message: "Connection is Ready!",
                 });
             });
 
-            // if (!init) {
             client.on('qr', (qr) => {
-                console.log("LLEGO22222!!!!!");
+                console.log("Generating QR Code!");
                 qrcode.toDataURL(qr, function (err, code) {
-                    if (err) return res.send(err.message);
-
-                    resolve(code)
+                    if (err) {return res.json(err.message)}
+                    return resolve(code)
                 });
-                console.log(code_qr);
             })
             setTimeout(() => {
-                reject(new Error("QR event wasn't emitted in 15 seconds."))
+                return reject(new Error("QR event wasn't emitted in 15 seconds."))
             }, 20000)
-            // client.initialize();
-            // }
         })
 
-        res.json({
+        return res.json({
             state: 'success',
             message: "New Session Created!",
             qr_url: qr
         });
 
     } catch (err) {
-        res.send(err.message)
+        return res.send(err.message)
     }
 };
 

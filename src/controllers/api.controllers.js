@@ -76,20 +76,23 @@ const anulateDocument = async (req, res, next) => {
     return res.status(405).json({ success: false, message: `Document Error1!` })
     
     let api;
+    let type;
     if (!!format.codigo_tipo_proceso) {
         const ext_id = format.documentos[0].external_id
         //update state in API
         const api_doc = await update_doc_api(ext_id, company.url)
         if (api_doc)
             return res.status(405).json({ success: false, message: `API Document Error!` })
-
+        type = '03'
         api = new ApiClient(`${company.url}/api/summaries`, company.token)
     } else {
+        type = '01'
         api = new ApiClient(`${company.url}/api/voided`, company.token)
     }
 
 
     let result = await api.sendDocument(format)
+    result.type = type;
     if (!result.success) {
         return res.status(405).json(result)
     }
@@ -150,19 +153,19 @@ const consultAnulateDocument = async (req, res, next) => {
     
     const docu = await select_document_by_id(req.body.id_document, company.tenant)
     if (!docu)
-        res.status(405).json({ success: false, message: 'Document Finding Error!' })
+        return res.status(405).json({ success: false, message: 'Document Finding Error!' })
     
     const result = await consultAnulation(docu.response_anulate, company)
     if (result.success) {
-        const doc = update_document_anulate(req.body.id_document, company.tenant, result)
         result.state = 'A';
+        const doc = update_document_anulate(req.body.id_document, company.tenant, result)
 
         const counting = await countingDocsState(company.tenant)
         result.counting = counting
         if (doc)
-            res.status(200).json(result)
+            return res.status(200).json(result)
     }
-    res.status(405).json({ success: false, message: 'Cannot consult void!' })
+    res.status(405).json(result)
 }
 
 const consultAnulateDocumentAll = async (req, res, next) => {
@@ -174,13 +177,13 @@ const consultAnulateDocumentAll = async (req, res, next) => {
     if (!docs)
         res.status(405).json({ success: false, message: 'Error finding documents!' })
     
-    const { num_anulados, num_error, num_error_updating } = sendAllConsultVoidPerCompany(company, docs)
+    const { num_anulados, num_error, num_error_updating } = await sendAllConsultVoidPerCompany(company, docs)
     return res.status(200).json({ 
         success: true, 
-        message: 'Comprobantes Anulados Consultados',
-        num_anulados: `Consultados ${num_aceptados}`,
-        num_error: `Con error ${num_rechazados}`,
-        num_error_updating: `No actualizado en la BD. ${num_por_anular}`,
+        message: 'Anulaciones Consultadas',
+        num_anulados: `Consultados ${num_anulados}`,
+        num_error: `Con error ${num_error}`,
+        num_error_updating: `No actualizado en la BD. ${num_error_updating}`,
     });
 }
 
