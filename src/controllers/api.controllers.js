@@ -105,7 +105,7 @@ const anulateDocument = async (req, res, next) => {
         }
     }
 
-    const doc = update_document_anulate(req.body.id_document, company.tenant, result)
+    const doc = await update_document_anulate(req.body.id_document, company.tenant, result)
     if (!doc)
         return res.status(405).json({ success: false, message: `Document Error2!` })
 
@@ -158,7 +158,7 @@ const consultAnulateDocument = async (req, res, next) => {
     const result = await consultAnulation(docu.response_anulate, company)
     if (result.success) {
         result.state = 'A';
-        const doc = update_document_anulate(req.body.id_document, company.tenant, result)
+        const doc = await update_document_anulate(req.body.id_document, company.tenant, result)
 
         const counting = await countingDocsState(company.tenant)
         result.counting = counting
@@ -178,12 +178,17 @@ const consultAnulateDocumentAll = async (req, res, next) => {
         res.status(405).json({ success: false, message: 'Error finding documents!' })
     
     const { num_anulados, num_error, num_error_updating } = await sendAllConsultVoidPerCompany(company, docs)
+
+    const counting = await countingDocsState(company.tenant)
+    result.counting = counting
+
     return res.status(200).json({ 
         success: true, 
         message: 'Anulaciones Consultadas',
         num_anulados: `Consultados ${num_anulados}`,
         num_error: `Con error ${num_error}`,
         num_error_updating: `No actualizado en la BD. ${num_error_updating}`,
+        counting: counting
     });
 }
 
@@ -196,13 +201,16 @@ const verifyExternalIds = async (req, res, next) => {
 
     const { num_aceptados, num_rechazados, num_por_anular, num_anulados } = await verifyingExternalIds(company.tenant, api)
 
+    const counting = await countingDocsState(company.tenant)
+    
     return res.status(200).json({ 
         success: true, 
         message: 'Comprobantes Actualizados',
         num_aceptados: `Aceptados ${num_aceptados}`,
         num_rechazados: `Rechazados ${num_rechazados}`,
         num_poranular: `Por Anular ${num_por_anular}`,
-        num_anulados: `Anulados ${num_anulados}`
+        num_anulados: `Anulados ${num_anulados}`,
+        counting: counting
     });
 }
 
