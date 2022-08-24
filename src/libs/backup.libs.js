@@ -11,16 +11,18 @@ const dbPort = process.env.DB_PORT;
 const backupFile = `${database}.backup`;
 
 const getBackup = async () => {
+	let res = '';
 	await execute(`PGPASSWORD="${username}" pg_dump -d ${database} -p ${dbPort} -U ${username} -h ${dbHost} -F t -f ${backupFile}`)
 		.then(async () => {
 			await compress(backupFile);
 			console.log("Backup Done");
 
-			throw `${backupFile}.gz`;
+			res = `${backupFile}.gz`;
 		}).catch(err => {
 			console.log(err);
 			throw err;
 		})
+	return res;
 }
 
 module.exports = { getBackup }

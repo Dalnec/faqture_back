@@ -295,6 +295,7 @@ const updateTaskState = async (id, state) => {
 const createBackup = async (req, res, next) => {
     try {
         const file_name = await getBackup();
+        console.log(file_name)
         if (!file_name) {
             return res.status(403).json({ success: false, message: "Backup Error" })
         } 
