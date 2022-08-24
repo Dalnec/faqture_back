@@ -1,7 +1,9 @@
 const pool = require('../db')
 const cron = require('node-cron');
+const fs = require('fs');
 const { setNewValues } = require('../libs/functions')
 const { getBackup } = require('../libs/backup.libs');
+const { uploadFile, searchFile, updateFile } = require('../libs/drive.libs');
 const { sendAllDocsAllCompanies, sendAllAnulateDocsAllCompanies } = require('../libs/document.libs');
 let taskBackup;
 let taskDocs;
@@ -173,8 +175,8 @@ const startStopTask = async (req, res, next) => {
                 default:
                     console.log("DEFAULT");
                     break;
-            }            
-            
+            }
+
             return res.json({
                 success: true,
                 message: 'Task stopped!'
@@ -216,10 +218,10 @@ const startStopTask = async (req, res, next) => {
     } catch (error) {
         flag = false;
         res.json({ error: error.message });
-    // } finally {
-    //     if (!flag) {
-    //         updateTaskOnOff(req.body.id, false);
-    //     }
+        // } finally {
+        //     if (!flag) {
+        //         updateTaskOnOff(req.body.id, false);
+        //     }
     }
 };
 
@@ -292,8 +294,19 @@ const updateTaskState = async (id, state) => {
 
 const createBackup = async (req, res, next) => {
     try {
-        await getBackup();
-        res.json({
+        const file_name = await getBackup();
+        if (!file_name) {
+            return res.json({ success: false, message: "Backup Error" })
+        } 
+
+        const file_found = await searchFile(file_name);
+        if (file_found) {
+            await updateFile(file_found)
+        } else {
+            await uploadFile(file_name);
+        }
+
+        return res.json({
             success: true,
             message: "Backup Created"
         })
