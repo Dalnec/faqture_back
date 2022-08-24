@@ -296,16 +296,11 @@ const createBackup = async (req, res, next) => {
     try {
         const file_name = await getBackup();
         if (!file_name) {
-            return res.json({ success: false, message: "Backup Error" })
+            return res.status(403).json({ success: false, message: "Backup Error" })
         } 
 
-        const file_found = await searchFile(file_name);
-        if (file_found) {
-            await updateFile(file_found)
-        } else {
-            await uploadFile(file_name);
-        }
-
+        await searchFile(file_name);
+        
         return res.json({
             success: true,
             message: "Backup Created"

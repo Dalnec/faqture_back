@@ -50,6 +50,7 @@ const updateFile = async (file) => {
 async function searchFile(filename) {
 
 	const files = [];
+	var message = ''
 	try {
 		const service = google.drive({ version: 'v3', auth });
 		const res = await service.files.list({
@@ -59,11 +60,16 @@ async function searchFile(filename) {
 		});
 		// Array.prototype.push.apply(files, res.files);
 		const found = res.data.files.find((file) => filename == file.name)
-		if (!found) {
-			return {};
+
+		if (found) {
+			console.log("File Found");
+			await updateFile(file_found)
+		} else {
+			console.log("File Not Found");
+			await uploadFile(file_name);
 		}
-		console.log("File Found");
-		return found;
+
+		return;
 	} catch (err) {
 		throw err;
 	}
