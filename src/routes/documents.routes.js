@@ -7,7 +7,8 @@ const router = Router();
 const { getDocuments, getDocumentById, createDocument, 
     updateDocument, deleteDocument, getDocumentByFilters, getDocumentCustomers, getDocumentByFilters1, updateApiDocument, clearDocuments } = require('../controllers/documents.controllers');
 
-router.get('/documents/:tenant', [verifyToken], getDocuments)
+// router.get('/documents/:tenant', [verifyToken], getDocuments)
+router.get('/documents/:tenant', verifyLocalToken, getDocumentByFilters)
 router.get('/documents/:tenant/:id', [verifyToken], getDocumentById)
 router.get('/documents-filters/:tenant', [verifyToken], getDocumentByFilters)
 router.get('/documents-filters1/:tenant', [verifyToken],getDocumentByFilters1)
