@@ -13,7 +13,7 @@ const uploadFile = async (file) => {
 		const { data } = await google.drive({ version: 'v3', auth }).files.create({
 			media: {
 				mimeType: 'application/x-rar-compressed',
-				body: fs.createReadStream('./MiguelitoChacha.backup.gz')
+				body: fs.createReadStream(`./${file}`)
 			},
 			requestBody: {
 				name: 'MiguelitoChacha.backup.gz',
@@ -63,10 +63,10 @@ async function searchFile(filename) {
 
 		if (found) {
 			console.log("File Found");
-			await updateFile(file_found)
+			await updateFile(found)
 		} else {
 			console.log("File Not Found");
-			await uploadFile(file_name);
+			await uploadFile(filename);
 		}
 
 		return;
