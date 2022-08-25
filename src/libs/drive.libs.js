@@ -16,7 +16,7 @@ const uploadFile = async (file) => {
 				body: fs.createReadStream(`./${file}`)
 			},
 			requestBody: {
-				name: 'MiguelitoChacha.backup.gz',
+				name: file,
 				parents: [DRIVE_FOLDER_ID],
 			},
 			fields: 'id,name',
@@ -50,7 +50,6 @@ const updateFile = async (file) => {
 async function searchFile(filename) {
 
 	const files = [];
-	var message = ''
 	try {
 		const service = google.drive({ version: 'v3', auth });
 		const res = await service.files.list({

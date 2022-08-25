@@ -1,8 +1,8 @@
 // import { nanoid } from 'nanoid'
-const {nanoid} = require('nanoid')
+const { nanoid } = require('nanoid')
 const pool = require('../db');
 const { setNewValues, setFiltersOR, setFiltersDocs } = require('../libs/functions')
-const { sendDoc } = require('../libs/document.libs');
+const { sendDoc, get_correlative_number } = require('../libs/document.libs');
 const { selectApiCompanyById } = require('../libs/company.libs');
 
 const getDocuments = async (req, res, next) => {
@@ -90,10 +90,10 @@ const createDocument = async (req, res, next) => {
                 numero_documento, datos_del_cliente_o_receptor.numero_documento,
                 datos_del_cliente_o_receptor.apellidos_y_nombres_o_razon_social,
                 totales.total_venta, 'N', JSON.stringify(strdocument, null, 4), company, external_id]);
-        
+
         let result = {}
         const apiCompany = await selectApiCompanyById(company)
-        if (apiCompany.autosend){
+        if (apiCompany.autosend) {
             result = await sendDoc(apiCompany, response.rows[0])
         }
 
@@ -103,13 +103,65 @@ const createDocument = async (req, res, next) => {
                 cod_sale: response.rows[0].cod_sale,
                 filename: `${company_number}-${response.rows[0].type}-${response.rows[0].serie}-${response.rows[0].numero}`,
                 state: result.state ? result.state : 'N',
-                external_id: external_id 
+                external_id: external_id
             }
         })
     } catch (error) {
         res.status(401).json({
             success: false,
             // data: {message: error.message}
+            message: error.message
+        })
+    }
+};
+
+const createApiDocument = async (req, res, next) => {
+    try {
+        const tenant = req.params.tenant;
+        const strdocument = JSON.stringify(req.body, null, 4)
+        const document = req.body
+        const { company, company_number } = req.params
+
+        const { id_venta, fecha_de_emision, hora_de_emision, codigo_tipo_documento, serie_documento,
+            numero_documento, datos_del_cliente_o_receptor, totales } = document
+
+        let numero;
+        if (numero_documento === '#') {
+            numero = await get_correlative_number(serie_documento, tenant)
+        } else {
+            numero = numero_documento;
+        }
+        const now = new Date()
+        const date = `${fecha_de_emision} ${hora_de_emision}`
+        const external_id = nanoid()
+
+        const response = await pool.query(
+            `INSERT INTO ${tenant}.document(created, modified, date, cod_sale, type, serie, numero, 
+                customer_number, customer, amount, states, json_format, id_company, external_id) 
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14 ) RETURNING *`,
+            [now, now, date, id_venta, codigo_tipo_documento, serie_documento,
+                numero, datos_del_cliente_o_receptor.numero_documento,
+                datos_del_cliente_o_receptor.apellidos_y_nombres_o_razon_social,
+                totales.total_venta, 'N', JSON.stringify(strdocument, null, 4), company, external_id]);
+
+        let result = {}
+        const apiCompany = await selectApiCompanyById(company)
+        if (apiCompany.autosend) {
+            result = await sendDoc(apiCompany, response.rows[0])
+        }
+
+        res.status(200).json({
+            success: true,
+            data: {
+                cod_sale: response.rows[0].cod_sale,
+                filename: `${company_number}-${response.rows[0].type}-${response.rows[0].serie}-${response.rows[0].numero}`,
+                state: result.state ? result.state : 'N',
+                external_id: external_id
+            }
+        })
+    } catch (error) {
+        res.status(401).json({
+            success: false,
             message: error.message
         })
     }
@@ -220,7 +272,7 @@ const clearDocuments = async (req, res, next) => {
             message: "Documents Cleared!"
         })
     } catch (error) {
-        res.json({error: error.message});
+        res.json({ error: error.message });
         next();
     }
 };
@@ -254,4 +306,5 @@ module.exports = {
     getDocumentByFilters1,
     updateApiDocument,
     clearDocuments,
+    createApiDocument,
 };

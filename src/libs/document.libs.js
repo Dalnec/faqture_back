@@ -126,6 +126,23 @@ const update_document_anulate = async (id, tenant, data) => {
 }
 
 
+const get_correlative_number = async (serie, tenant) => {
+    try {
+        if (!tenant) { return false; }
+        const docs = await pool.query(`SELECT numero FROM ${tenant}.document WHERE serie=$1 ORDER BY id_document DESC LIMIT 1`, [serie]);
+        if (docs.rowCount == 0) {
+            return 1;
+        }
+
+        return parseInt(docs.rows[0].numero) + 1;
+
+    } catch (error) {
+        console.log(error);
+        return false;
+    }
+}
+
+
 const formatAnulate = async (id, tenant) => {
     try {
         if (!id) { return false; }
@@ -258,14 +275,14 @@ const sendAllDocsPerCompany = async (company, api, docus) => {
 
 const consultAnulation = async (format, company) => {
     let api;
-    if (typeof format == 'string'){
+    if (typeof format == 'string') {
         format = JSON.parse(format)
     }
     if (format.type == '03') {
         api = new ApiClient(`${company.url}/api/summaries/status`, company.token)
     } else {
         api = new ApiClient(`${company.url}/api/voided/status`, company.token)
-    }    
+    }
     let res = await api.sendDocument(format.data)
     return res
 }
@@ -490,4 +507,5 @@ module.exports = {
     consultAnulation,
     select_all_documents_to_consult_void,
     sendAllConsultVoidPerCompany,
+    get_correlative_number,
 };
