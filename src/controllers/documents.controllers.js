@@ -2,7 +2,7 @@
 const { nanoid } = require('nanoid')
 const pool = require('../db');
 const { setNewValues, setFiltersOR, setFiltersDocs } = require('../libs/functions')
-const { sendDoc, get_correlative_number } = require('../libs/document.libs');
+const { sendDoc, get_correlative_number, select_document_by_serie_number } = require('../libs/document.libs');
 const { selectApiCompanyById } = require('../libs/company.libs');
 
 const getDocuments = async (req, res, next) => {
@@ -11,23 +11,18 @@ const getDocuments = async (req, res, next) => {
     res.status(200).json(response.rows)
 }
 
-const getDocumentByFilters1 = async (req, res, next) => {
+const getDocumentByFiltersReport = async (req, res, next) => {
     try {
         const tenant = req.params.tenant;
-        let { page, itemsPerPage } = req.query;
         let filters = req.query;
         delete filters.page
         delete filters.itemsPerPage
         filters = setFiltersDocs(filters)
-        const response = await pool.query(`SELECT * FROM ${tenant}.document ${filters} ORDER BY id_document 
-        LIMIT ${itemsPerPage} OFFSET ${(page - 1) * itemsPerPage}`);
-
-        const tocount = await pool.query(`SELECT * FROM ${tenant}.document ${filters}`)
+        const response = await pool.query(`SELECT id_document, TO_CHAR(date::DATE, 'yyyy-mm-dd') AS date, cod_sale, type, serie, numero, 
+        customer_number, customer, amount, states, json_format, response_send, response_anulate, id_company, external_id FROM ${tenant}.document ${filters} ORDER BY id_document DESC`);
 
         res.json({
-            page: page,
-            count: tocount.rows.length,
-            filters: filters,
+            count: response.rowCount,
             data: response.rows
         });
     } catch (error) {
@@ -118,7 +113,7 @@ const createDocument = async (req, res, next) => {
 const createApiDocument = async (req, res, next) => {
     try {
         const tenant = req.params.tenant;
-        const strdocument = JSON.stringify(req.body, null, 4)
+        let strdocument = JSON.stringify(req.body, null, 4)
         const document = req.body
         const { company, company_number } = req.params
 
@@ -128,6 +123,8 @@ const createApiDocument = async (req, res, next) => {
         let numero;
         if (numero_documento === '#') {
             numero = await get_correlative_number(serie_documento, tenant)
+            req.body.numero_documento = numero
+            strdocument = JSON.stringify(req.body, null, 4)
         } else {
             numero = numero_documento;
         }
@@ -156,7 +153,8 @@ const createApiDocument = async (req, res, next) => {
                 cod_sale: response.rows[0].cod_sale,
                 filename: `${company_number}-${response.rows[0].type}-${response.rows[0].serie}-${response.rows[0].numero}`,
                 state: result.state ? result.state : 'N',
-                external_id: external_id
+                external_id: external_id,
+                ...((numero_documento === '#') && { numero_documento: numero })
             }
         })
     } catch (error) {
@@ -170,7 +168,8 @@ const createApiDocument = async (req, res, next) => {
 const updateApiDocument = async (req, res, next) => {
     // use to update state to anulate
     try {
-        const id = parseInt(req.params.id);
+        // const id = parseInt(req.params.id);
+        const id = req.params.id;
         const tenant = req.params.tenant;
         // let newData = req.body;
         // const newData = setNewValues(req.body)
@@ -178,7 +177,7 @@ const updateApiDocument = async (req, res, next) => {
         let state = '';
         let code = 200;
         // verify actual state
-        const doc = await pool.query(`SELECT * FROM ${tenant}.document WHERE cod_sale=$1`, [id]);
+        const doc = await pool.query(`SELECT * FROM ${tenant}.document WHERE cod_sale=$1 OR external_id=$1`, [id]);
         if (doc.rowCount <= 0) {
             return res.status(401).json({
                 success: false,
@@ -221,7 +220,7 @@ const updateApiDocument = async (req, res, next) => {
             })
 
         const response = await pool.query(
-            `UPDATE ${tenant}.document SET states=$1 WHERE cod_sale=$2 RETURNING *`, [state, id]);
+            `UPDATE ${tenant}.document SET states=$1 WHERE cod_sale=$2 or external_id=$2 RETURNING *`, [state, id]);
         // console.log(response.rows[0]);
         res.status(200).json({
             success: true,
@@ -295,6 +294,36 @@ const getDocumentCustomers = async (req, res, next) => {
     }
 };
 
+
+const externalIdFormatNotaCredito = async (req, res, next) => {
+    try {
+        const { serie_documento, numero_documento, codigo_tipo_documento } = req.body.documento_afectado;
+        const id = req.params.id;
+        const tenant = req.params.tenant;
+
+        const docRef = await select_document_by_serie_number(tenant, serie_documento, numero_documento);
+        if (!docRef) {
+            res.status(400).json({ success: false, message: error.message })
+        }
+        // const newData = setNewValues(req.body)
+        req.body.documento_afectado = {
+            external_id: JSON.parse(docRef.response_send).data.external_id,
+            codigo_tipo_documento: codigo_tipo_documento
+        }
+        const strdocument = JSON.stringify(req.body, null, 4)
+        const response = await pool.query(
+            `UPDATE ${tenant}.document SET json_format=$1 WHERE id_document = $2 RETURNING *`, [JSON.stringify(strdocument, null, 4), id]);
+
+        res.status(200).json({
+            success: true,
+            message: "Format Changed"
+        })
+    } catch (error) {
+        res.status(400).json({ error: error.message })
+    }
+
+};
+
 module.exports = {
     getDocuments,
     createDocument,
@@ -303,8 +332,9 @@ module.exports = {
     updateDocument,
     getDocumentByFilters,
     getDocumentCustomers,
-    getDocumentByFilters1,
+    getDocumentByFiltersReport,
     updateApiDocument,
     clearDocuments,
     createApiDocument,
+    externalIdFormatNotaCredito,
 };

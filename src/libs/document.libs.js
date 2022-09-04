@@ -28,7 +28,7 @@ const select_document_by_external_id = async (external_id, tenant) => {
     }
 }
 
-const select_document_by_serie_number = async (serie, numero) => {
+const select_document_by_serie_number = async (tenant, serie, numero) => {
     try {
         if (!tenant) { return false; }
         const docs = await pool.query(`SELECT id_document, json_format, response_send, response_anulate, states, external_id FROM ${tenant}.document WHERE serie=$1 AND numero=$2`, [serie, numero]);
@@ -507,5 +507,6 @@ module.exports = {
     consultAnulation,
     select_all_documents_to_consult_void,
     sendAllConsultVoidPerCompany,
+    select_document_by_serie_number,
     get_correlative_number,
 };
