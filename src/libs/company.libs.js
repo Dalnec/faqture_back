@@ -29,4 +29,15 @@ const selectAllApiCompany = async () => {
     }
 }
 
-module.exports = { selectApiCompanyById, selectAllApiCompany };
+const getCompanyByNumber = async (ruc) => {
+    try {
+        const company = await pool.query('SELECT * FROM public.company WHERE company_number = $1', [ruc]);
+        if (!company.rowCount) { return false; }
+        return company.rows[0]
+    } catch (error) {
+        return false;
+    }
+    
+};
+
+module.exports = { selectApiCompanyById, selectAllApiCompany, getCompanyByNumber };

@@ -119,7 +119,7 @@ begin
     loop 
 	raise notice '%', f.nspname;
     EXECUTE 'SET LOCAL search_path = ' || f.nspname;
-    ALTER TABLE tsi.document ALTER COLUMN cod_sale TYPE VARCHAR(100);
+    ALTER TABLE document ALTER COLUMN cod_sale TYPE VARCHAR(100);
     end loop;
 end;
 $$

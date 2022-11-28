@@ -8,7 +8,7 @@ const sendMessages = async (req, res, next) => { }
 
 const sendFiles = async (req, res, next) => {
     try {
-        const number = req.body.number
+        const number = req.body.number.trim()
         if (number.length != 9) {
             return res.status(204).json({ success: false, message: "Number no Valid!" });
         }

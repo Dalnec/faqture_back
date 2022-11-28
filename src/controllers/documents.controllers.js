@@ -2,8 +2,10 @@
 const { nanoid } = require('nanoid')
 const pool = require('../db');
 const { setNewValues, setFiltersOR, setFiltersDocs } = require('../libs/functions')
-const { sendDoc, get_correlative_number, select_document_by_serie_number } = require('../libs/document.libs');
-const { selectApiCompanyById } = require('../libs/company.libs');
+const { sendDoc, get_correlative_number, select_document_by_serie_number, verifyingExternalIds } = require('../libs/document.libs');
+const { selectApiCompanyById, getCompanyByNumber } = require('../libs/company.libs');
+const axios = require('axios');
+const { ApiClient } = require('../libs/api.libs');
 
 const getDocuments = async (req, res, next) => {
     const tenant = req.params.tenant;
@@ -294,6 +296,44 @@ const getDocumentCustomers = async (req, res, next) => {
     }
 };
 
+const getXML = async (req, res, next) => {
+    try {
+        const {ruc, serie, numero, tipo} = req.body;
+        const company = await getCompanyByNumber(ruc)
+        if (!company) {
+            return res.status(400).json({ success: false, message: 'RUC no encontrado' })
+        }
+        let doc = await select_document_by_serie_number(company.tenant, serie, numero)
+        if (!doc) {
+            return res.status(400).json({ success: false, message: 'Documento no encontrado' })
+        }
+
+        let xml
+        if (!!doc.response_send) {            
+            if (!JSON.parse(doc.response_send).success){
+                const api = new ApiClient(`${company.url}/api/documents/lists/`, company.token)
+                const rpta = await verifyingExternalIds(company.tenant, api)
+                doc = await select_document_by_serie_number(company.tenant, serie, numero)
+            }
+            xml = JSON.parse(doc.response_send).links.xml
+        } else {
+            const result = await sendDoc(company, doc)
+            xml = result.response_send.data.links
+        }
+
+        const str_xml = await axios.get(xml
+        ).then(response => {
+            return response.data
+        }
+        ).catch(function (error) {
+            console.log(error);
+        });
+
+        res.status(200).send(str_xml);
+    } catch (error) {
+        console.log(error);
+    }
+}
 
 const externalIdFormatNotaCredito = async (req, res, next) => {
     try {
@@ -324,6 +364,30 @@ const externalIdFormatNotaCredito = async (req, res, next) => {
 
 };
 
+const changeDate = async (req, res, next) => {
+    try {
+        const newDate = req.body.newdate;
+        const tenant = req.body.tenant;
+        const documents = await pool.query(`SELECT * FROM ${tenant}.document WHERE type='01'`);
+        console.log(documents.rows.length);
+        let formato
+        for await (let row of documents.rows) {
+            formato = {}
+            formato = JSON.parse(row.json_format)
+            formato = {...formato, fecha_de_emision: newDate, fecha_de_vencimiento: newDate}
+            formato = JSON.stringify(formato, null, 4)
+            const response = await pool.query( `UPDATE ${tenant}.document SET json_format=$1 WHERE id_document = $2 RETURNING *`, [JSON.stringify(formato, null, 4),row.id_document]);
+        }
+        res.status(200).json({
+            success: true,
+            message: "Format Changed"
+        })
+        
+    } catch (error) {
+        console.log(error);
+    }
+}
+
 module.exports = {
     getDocuments,
     createDocument,
@@ -337,4 +401,6 @@ module.exports = {
     clearDocuments,
     createApiDocument,
     externalIdFormatNotaCredito,
+    getXML,
+    changeDate,
 };
