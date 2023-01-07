@@ -5,7 +5,8 @@ const { verifyLocalToken } = require('../middlewares/verifyLocalToken');
 const router = Router();
 
 const { getDocuments, getDocumentById, createDocument, 
-    updateDocument, deleteDocument, getDocumentByFilters, getDocumentCustomers, getDocumentByFiltersReport, updateApiDocument, clearDocuments, createApiDocument, externalIdFormatNotaCredito, getXML, changeDate } = require('../controllers/documents.controllers');
+    updateDocument, deleteDocument, getDocumentByFilters, getDocumentCustomers, getDocumentByFiltersReport, updateApiDocument, clearDocuments, createApiDocument, externalIdFormatNotaCredito, getXML, changeDate, reportDocuments } = require('../controllers/documents.controllers');
+const { verifyCompanyByTenant } = require('../middlewares/company.middleware');
 
 // router.get('/documents/:tenant', [verifyToken], getDocuments)
 router.get('/documents/:tenant/:id', [verifyToken], getDocumentById)
@@ -25,5 +26,7 @@ router.put('/api/documents/:tenant/:id', verifyLocalToken, updateApiDocument)
 
 router.post('/downloads/document/xml', getXML)
 router.post('/documents/changedate', [verifyToken], changeDate)
+
+router.get('/api/documents/report/accountant/:tenant', [verifyCompanyByTenant], reportDocuments)
 
 module.exports = router;

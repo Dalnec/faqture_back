@@ -17,6 +17,19 @@ const selectApiCompanyById = async (id) => {
         return false;
     }
 }
+const selectApiCompanyByTenant = async (tenant) => {
+    try {
+        if (!tenant) { return false; }
+
+        const company = await pool.query(`SELECT url, token, tenant, autosend FROM public.company WHERE state=true AND tenant = $1`, [tenant]);
+        if (!company.rowCount) { return false; }
+
+        return company.rows[0]
+
+    } catch (error) {
+        return false;
+    }
+}
 
 const selectAllApiCompany = async () => {
     try {
@@ -40,4 +53,4 @@ const getCompanyByNumber = async (ruc) => {
     
 };
 
-module.exports = { selectApiCompanyById, selectAllApiCompany, getCompanyByNumber };
+module.exports = { selectApiCompanyById, selectAllApiCompany, getCompanyByNumber, selectApiCompanyByTenant };

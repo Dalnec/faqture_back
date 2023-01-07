@@ -7,7 +7,7 @@ require('dotenv').config()
 
 
 const create_mysql_connection = (url) => {
-
+    console.log(url);
     let server = url.replace('https://', '');
     server = server.split(".", 2);
     // let conn;
@@ -115,4 +115,26 @@ const checkConnection = async (url = '') => {
     })
 }
 
-module.exports = { update_doc_api, checkConnection };
+const listReportDocuments = async (url, filters) => {
+    // let query = `SELECT id, date_of_issue, state_type_id, data_json, group_id, series, number 
+    let query = `SELECT state_type_id, data_json, exchange_rate_sale, payment_method_type_id
+        FROM documents 
+        WHERE YEAR(date_of_issue)=${filters.year} 
+        AND MONTH(date_of_issue)=${filters.month} LIMIT 5`;
+    // let query = 'SELECT * FROM documents LIMIT 1';
+    // if (url){
+        const conn = await create_mysql_connection(url)
+    // }
+
+    return new Promise((resolve, reject) => {
+        conn.query(query, function (error, result, fields) {
+            if (error) {
+                console.log(error);
+                throw error;
+            }
+            resolve(result);
+        });
+    })
+}
+
+module.exports = { update_doc_api, checkConnection, listReportDocuments };

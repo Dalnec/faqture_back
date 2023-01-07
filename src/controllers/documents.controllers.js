@@ -6,6 +6,7 @@ const { sendDoc, get_correlative_number, select_document_by_serie_number, verify
 const { selectApiCompanyById, getCompanyByNumber } = require('../libs/company.libs');
 const axios = require('axios');
 const { ApiClient } = require('../libs/api.libs');
+const { listReportDocuments } = require('../libs/connection');
 
 const getDocuments = async (req, res, next) => {
     const tenant = req.params.tenant;
@@ -388,6 +389,22 @@ const changeDate = async (req, res, next) => {
     }
 }
 
+const reportDocuments = async (req, res, next) => {
+    try {
+        const {url} = req.company
+        const filters = req.query;
+        const docs = await listReportDocuments(url, filters)
+        res.status(200).json({
+            success: true,
+            message: "Report!!",
+            data: docs
+        })
+        
+    } catch (error) {
+        console.log(error);
+    }
+}
+
 module.exports = {
     getDocuments,
     createDocument,
@@ -403,4 +420,5 @@ module.exports = {
     externalIdFormatNotaCredito,
     getXML,
     changeDate,
+    reportDocuments,
 };
