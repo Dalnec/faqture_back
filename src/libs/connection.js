@@ -120,7 +120,8 @@ const listReportDocuments = async (url, filters) => {
     let query = `SELECT state_type_id, data_json, exchange_rate_sale, payment_method_type_id
         FROM documents 
         WHERE YEAR(date_of_issue)=${filters.year} 
-        AND MONTH(date_of_issue)=${filters.month} LIMIT 5`;
+        AND MONTH(date_of_issue)=${filters.month}`;
+        // AND MONTH(date_of_issue)=${filters.month} LIMIT 5`;
     // let query = 'SELECT * FROM documents LIMIT 1';
     // if (url){
         const conn = await create_mysql_connection(url)
