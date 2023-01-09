@@ -123,12 +123,13 @@ const listReportDocuments = async (url, filters) => {
     total_free, total_taxed, total_unaffected, total_exonerated, total_igv, total_igv_free,
     total_base_isc, total_isc, total_base_other_taxes, total_other_taxes, total_plastic_bag_taxes, 
     total_taxes, total_value, subtotal, total, N.document_id, N.affected_document_id,
-    (SELECT COncat(DD.series, "-", DD.number) FROM documents AS DD WHERE DD.id = N.affected_document_id) AS affected_document_description
+    (SELECT COncat(DD.series, "-",DD.number) FROM documents AS DD WHERE DD.id = N.affected_document_id) AS affected_document_description
     FROM documents as D
     LEFT OUTER JOIN notes as N ON D.id = N.document_id
     WHERE YEAR(D.date_of_issue)=${filters.year} 
-    AND MONTH(D.date_of_issue)=${filters.month}`;
-    
+    AND MONTH(D.date_of_issue)=${filters.month}
+    GROUP BY D.series, D.number`;
+
     const conn = await create_mysql_connection(url)
 
     return new Promise((resolve, reject) => {
