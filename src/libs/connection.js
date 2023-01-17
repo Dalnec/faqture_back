@@ -7,7 +7,7 @@ require('dotenv').config()
 
 
 const create_mysql_connection = (url) => {
-    console.log(url);
+    // console.log(url);
     let server = url.replace('https://', '');
     server = server.split(".", 2);
     // let conn;
