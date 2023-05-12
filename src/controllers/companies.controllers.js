@@ -31,7 +31,7 @@ const getCompaniestByFilters = async (req, res, next) => {
 
         filters = setFiltersORCompany(company)
 
-        const response = await pool.query(`SELECT id_company, created::text, company_number, company, tenant, url, token, localtoken, state, autosend FROM public.company ${filters} ORDER BY id_company 
+        const response = await pool.query(`SELECT id_company, created::text, company_number, company, tenant, url, token, localtoken, state, autosend, zenda_url, zenda_token, zenda_state FROM public.company ${filters} ORDER BY id_company 
         LIMIT ${itemsPerPage} OFFSET ${(page - 1) * itemsPerPage}`);
 
         const tocount = await pool.query(`SELECT * FROM public.company ${filters}`)
