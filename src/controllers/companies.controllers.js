@@ -60,7 +60,7 @@ const getCompanyId = async (req, res, next) => {
 
 const createCompany = async (req, res, next) => {
     try {
-        const { company_number, company, url, token, tenant, autosend } = req.body
+        const { company_number, company, url, token, tenant, autosend, zenda_url, zenda_token, zenda_state } = req.body
 
         // const localtoken = encrypt(tenant)
         const localtoken = await encryptPasword(tenant)
