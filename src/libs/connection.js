@@ -80,7 +80,7 @@ const update_doc_api = async (ext_id, url) => {
     if (ext_id) {
         query = `UPDATE documents SET group_id='02' WHERE external_id = '${ext_id}'`
     } else {
-        query = "UPDATE documents SET group_id='02' WHERE document_type_id ='03' AND group_id <> '02'"        
+        query = "UPDATE documents SET group_id='02' WHERE document_type_id ='03' AND group_id <> '02'"
     }
     return new Promise(data => {
         conn.query(query, function (error, result) {
