@@ -403,7 +403,7 @@ const verifyingExternalIds = async (tenant, api) => {
     let num_aceptados = 0, num_rechazados = 0, num_por_anular = 0, num_anulados = 0
     // get docs without external_ids
     const docs = await select_all_responses(tenant);
-    console.log("verifying", docs);
+    // console.log("verifying", docs);
     if (!docs) { return false; }
     // get dates to check
     const docsbydate = docs.filter((value, index, self) =>
