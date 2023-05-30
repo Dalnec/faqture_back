@@ -1,56 +1,27 @@
-const { getClient, getClient2 } = require("../whatsapp");
-const fs = require('fs');
-
-const verifyWspClient = async (req, res, next) => {
+const verifyWsp = async (req, res, next) => {
     try {
-        const client = await getClient2()
-        if (!client) {
-            console.log("Cliente no Iniciado")
-            return res.status(204).json({ success: false, message: "NO WSP Session!" })
+        const { countryCode, phoneNumber, message } = req.body
+        if (!countryCode) {
+            return res.status(409).send({ error: 'Country Code No Valid!' })
         }
-        // if (client) {
-            console.log("Cliente INICIADO")
-            req.clientWs = client;
-            return next()
-        // }
-        // console.log("Cliente no Iniciado")
-        // return res.send({ success: false, message: "NO WSP Session!" })
-        
-    } catch (e) {
-        console.log(e)
-        return res.status(409).send({ error: 'Client Error' })
-    }
-}
-
-const initClient = async (req, res, next) => {
-    try {
-        const client = await getClient()
-        req.clientWs = client
-        return next()
-
-    } catch (e) {
-        console.log(e)
-        return res.status(204).send({ error: 'Error init client' })
-    }
-
-}
-
-const verifyWspClient2 = async (req, res, next) => {
-    try {
-        let directoryPath = "./.wwebjs_auth"
-        if (!fs.existsSync(directoryPath)) {
-            return res.send({
-                success: false,
-                message: "Directory no found!",
-            });
+        if (!isInt(phoneNumber.split(" ").join("").trim())) {
+            return res.status(409).send({ error: 'Phone Number No Valid!' })
+        } else {
+            req.body.phoneNumber = phoneNumber.split(" ").join("").trim()
         }
-        const client = await getClient2()
-        req.clientWs = client
-        return next()
-        
+        next();
     } catch (e) {
         console.log(e)
-        return res.status(204).send({ error: 'Client Error' })
+        return res.status(409).send({ error: 'Whatsapp Service Error' })
     }
 }
-module.exports = { verifyWspClient, initClient, verifyWspClient2 }
+
+function isInt(value) {
+    if (isNaN(value)) {
+        return false;
+    }
+    var x = parseFloat(value);
+    return (x | 0) === x;
+}
+
+module.exports = { verifyWsp }

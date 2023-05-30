@@ -31,8 +31,7 @@
     "pg": "^8.7.1",
     "pg-hstore": "^2.3.4",
     "qrcode": "^1.5.1",
-    "ssh2": "^1.11.0",
-    "whatsapp-web.js": "^1.18.4"
+    "ssh2": "^1.11.0"
   },
   "devDependencies": {
     "nodemon": "^2.0.15",
