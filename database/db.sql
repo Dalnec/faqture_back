@@ -53,6 +53,7 @@ CREATE TABLE public.user(
     type character varying(50) NOT NULL,
     PRIMARY KEY (id_user),
     id_company jsonb -- id_company bigint,
+    settings jsonb,
     -- CONSTRAINT company_document_fk
     --     FOREIGN KEY(id_company) 
     --     REFERENCES company(id_company)
@@ -60,6 +61,9 @@ CREATE TABLE public.user(
 --ALTER/UPDATE COLUMN
 ALTER TABLE public.user
 ALTER COLUMN password TYPE varchar(255);
+--ALTER/UPDATE COLUMN
+ALTER TABLE public.user
+ALTER COLUMN settings jsonb;
 --ADD COLUMN
 ALTER TABLE public.company
 ADD COLUMN localtoken varying(255) constraint;
