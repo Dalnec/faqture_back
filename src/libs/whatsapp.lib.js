@@ -77,7 +77,7 @@ function getTemplateTSI(recipient, doc) {
                         {
                             "type": "image",
                             "image": {
-                                "link": "https://kilariapi.flizzy.pe/media/business/logo.png"
+                                "link": "https://faqtureapi.tsifactur.com/static/images/tsi.jpeg"
                             }
                         }
                     ]
