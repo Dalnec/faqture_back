@@ -44,7 +44,7 @@ const sendMessages = async (req, res, next) => {
 const sendFiles = async (req, res, next) => {
     const { countryCode, phoneNumber, pdf, links, filename } = req.body
     const templateTSI = getTemplateTSI(`${countryCode}${phoneNumber}`, req.body);
-    const templatePDF = getTemplatePDF(`${countryCode}${phoneNumber}`, links.pdf, filename);
+    const templatePDF = getTemplatePDF(`${countryCode}${phoneNumber}`, pdf || links.pdf, filename);
     const templateXML = getTemplateXML(`${countryCode}${phoneNumber}`, links.xml, filename);
 
     sendMessage(templateTSI)
