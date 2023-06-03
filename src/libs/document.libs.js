@@ -398,6 +398,22 @@ const sendAllAnulateDocsAllCompanies = async () => {
     }
 };
 
+const getAllRejectedDocsAllCompanies = async () => {
+
+    const schemas = await selectAllApiCompany()
+    const queries = schemas.map(async schema => {
+        const { rows } = await pool.query(`SELECT COUNT(states) AS "Rechazados" FROM ${schema.tenant}.document WHERE states = 'R';`)
+        if (rows[0].Rechazados != '0') {
+            return {
+                ...schema,
+                ...rows[0]
+            }
+        }
+    });
+    const results = await Promise.all(queries);
+    return results
+};
+
 const verifyingExternalIds = async (tenant, api) => {
     if (!tenant) { return false; }
     let num_aceptados = 0, num_rechazados = 0, num_por_anular = 0, num_anulados = 0
@@ -510,4 +526,5 @@ module.exports = {
     sendAllConsultVoidPerCompany,
     select_document_by_serie_number,
     get_correlative_number,
+    getAllRejectedDocsAllCompanies,
 };

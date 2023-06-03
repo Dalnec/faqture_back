@@ -2,7 +2,7 @@
 const { nanoid } = require('nanoid')
 const pool = require('../db');
 const { setNewValues, setFiltersOR, setFiltersDocs } = require('../libs/functions')
-const { sendDoc, get_correlative_number, select_document_by_serie_number, verifyingExternalIds } = require('../libs/document.libs');
+const { sendDoc, get_correlative_number, select_document_by_serie_number, verifyingExternalIds, getAllRejectedDocsAllCompanies } = require('../libs/document.libs');
 const { selectApiCompanyById, getCompanyByNumber } = require('../libs/company.libs');
 const axios = require('axios');
 const { ApiClient } = require('../libs/api.libs');
@@ -299,7 +299,7 @@ const getDocumentCustomers = async (req, res, next) => {
 
 const getXML = async (req, res, next) => {
     try {
-        const {ruc, serie, numero, tipo} = req.body;
+        const { ruc, serie, numero, tipo } = req.body;
         const company = await getCompanyByNumber(ruc)
         if (!company) {
             return res.status(400).json({ success: false, message: 'RUC no encontrado' })
@@ -310,8 +310,8 @@ const getXML = async (req, res, next) => {
         }
 
         let xml
-        if (!!doc.response_send) {            
-            if (!JSON.parse(doc.response_send).success){
+        if (!!doc.response_send) {
+            if (!JSON.parse(doc.response_send).success) {
                 const api = new ApiClient(`${company.url}/api/documents/lists/`, company.token)
                 const rpta = await verifyingExternalIds(company.tenant, api)
                 doc = await select_document_by_serie_number(company.tenant, serie, numero)
@@ -375,15 +375,29 @@ const changeDate = async (req, res, next) => {
         for await (let row of documents.rows) {
             formato = {}
             formato = JSON.parse(row.json_format)
-            formato = {...formato, fecha_de_emision: newDate, fecha_de_vencimiento: newDate}
+            formato = { ...formato, fecha_de_emision: newDate, fecha_de_vencimiento: newDate }
             formato = JSON.stringify(formato, null, 4)
-            const response = await pool.query( `UPDATE ${tenant}.document SET json_format=$1 WHERE id_document = $2 RETURNING *`, [JSON.stringify(formato, null, 4),row.id_document]);
+            const response = await pool.query(`UPDATE ${tenant}.document SET json_format=$1 WHERE id_document = $2 RETURNING *`, [JSON.stringify(formato, null, 4), row.id_document]);
         }
         res.status(200).json({
             success: true,
             message: "Format Changed"
         })
-        
+
+    } catch (error) {
+        console.log(error);
+    }
+}
+
+const getRejected = async (req, res, next) => {
+    try {
+        const results = await getAllRejectedDocsAllCompanies()
+        res.status(200).json({
+            success: true,
+            message: "Rejected Documentes!",
+            results
+        })
+
     } catch (error) {
         console.log(error);
     }
@@ -391,7 +405,7 @@ const changeDate = async (req, res, next) => {
 
 const reportDocuments = async (req, res, next) => {
     try {
-        const {url} = req.company
+        const { url } = req.company
         const filters = req.query;
         const docs = await listReportDocuments(url, filters)
         res.status(200).json({
@@ -399,7 +413,7 @@ const reportDocuments = async (req, res, next) => {
             message: "Report!!",
             data: docs
         })
-        
+
     } catch (error) {
         console.log(error);
     }
@@ -421,4 +435,5 @@ module.exports = {
     getXML,
     changeDate,
     reportDocuments,
+    getRejected,
 };
