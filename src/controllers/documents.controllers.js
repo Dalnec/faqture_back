@@ -2,7 +2,7 @@
 const { nanoid } = require('nanoid')
 const pool = require('../db');
 const { setNewValues, setFiltersOR, setFiltersDocs } = require('../libs/functions')
-const { sendDoc, get_correlative_number, select_document_by_serie_number, verifyingExternalIds, getAllRejectedDocsAllCompanies } = require('../libs/document.libs');
+const { sendDoc, get_correlative_number, select_document_by_serie_number, verifyingExternalIds, getAllRejectedDocsAllCompanies, get_docs_month_filter } = require('../libs/document.libs');
 const { selectApiCompanyById, getCompanyByNumber } = require('../libs/company.libs');
 const axios = require('axios');
 const { ApiClient } = require('../libs/api.libs');
@@ -395,7 +395,7 @@ const getRejected = async (req, res, next) => {
         res.status(200).json({
             success: true,
             message: "Rejected Documentes!",
-            results
+            results,
         })
 
     } catch (error) {
@@ -404,6 +404,7 @@ const getRejected = async (req, res, next) => {
 }
 
 const reportDocuments = async (req, res, next) => {
+    /* Get Data from Pro5 */
     try {
         const { url } = req.company
         const filters = req.query;
@@ -412,6 +413,30 @@ const reportDocuments = async (req, res, next) => {
             success: true,
             message: "Report!!",
             data: docs
+        })
+
+    } catch (error) {
+        console.log(error);
+    }
+}
+
+const reports = async (req, res, next) => {
+    try {
+        const filters = { year: 2023, month: 3 };
+        // const filters = req.query;
+        const docs = await get_docs_month_filter(req.params.tenant, filters)
+        // console.log(docs);
+        let data = []
+        docs.forEach((doc => {
+            const { items, ...head } = JSON.parse(doc.json_format)
+            items.forEach((d) => {
+                data.push({ ...head, ...d })
+            })
+        }))
+        res.status(200).json({
+            success: true,
+            message: "Report!!",
+            data
         })
 
     } catch (error) {
@@ -436,4 +461,5 @@ module.exports = {
     changeDate,
     reportDocuments,
     getRejected,
+    reports,
 };

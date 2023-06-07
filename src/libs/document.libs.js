@@ -93,6 +93,23 @@ const select_all_documents_to_consult_void = async (tenant) => {
     }
 }
 
+const get_docs_month_filter = async (tenant, filters) => {
+    try {
+        console.log(tenant, filters);
+        if (!tenant && !filters) { return false; }
+        const docs = await pool.query(`SELECT id_document, TO_CHAR(date::DATE, 'yyyy-mm-dd') AS date, cod_sale, type, serie, numero, 
+        customer_number, customer, amount, states, json_format, response_send, response_anulate, id_company, external_id FROM demo.document 
+        WHERE EXTRACT(YEAR FROM date)=${filters.year} AND EXTRACT(MONTH FROM date)=${filters.month} ORDER BY id_document DESC`);
+        console.log(docs);
+        if (!docs.rowCount) { return false; }
+        return docs.rows;
+
+    } catch (error) {
+        console.log(error);
+        return false;
+    }
+}
+
 const update_document = async (id, tenant, data) => {
     try {
         if (!id) { return false; }
@@ -402,16 +419,23 @@ const getAllRejectedDocsAllCompanies = async () => {
 
     const schemas = await selectAllApiCompany()
     const queries = schemas.map(async schema => {
-        const { rows } = await pool.query(`SELECT COUNT(states) AS "Rechazados" FROM ${schema.tenant}.document WHERE states = 'R';`)
-        if (rows[0].Rechazados != '0') {
-            return {
-                ...schema,
-                ...rows[0]
-            }
+        // const { rows } = await pool.query(`SELECT COUNT(states) AS "Rechazados" FROM ${schema.tenant}.document WHERE states = 'R';`)
+        const { rows } = await pool.query(`SELECT id_document, TO_CHAR(date::DATE, 'yyyy-mm-dd') AS date, cod_sale, type, serie, numero, 
+        customer_number, customer, amount, states, json_format, response_send, response_anulate, id_company, external_id FROM ${schema.tenant}.document WHERE states = 'R';`)
+        return {
+            ...schema,
+            rows
         }
+        // if (rows[0].Rechazados != '0') {
+        //     return {
+        //         ...schema,
+        //         ...rows[0]
+        //     }
+        // }
     });
-    const results = await Promise.all(queries);
-    return results
+    return await Promise.all(queries)
+        .then(values => values.filter(v => v.rows.length > 0))
+    // .then(values => values.map(v => ({ count: v.rows.length, ...v })));
 };
 
 const verifyingExternalIds = async (tenant, api) => {
@@ -527,4 +551,5 @@ module.exports = {
     select_document_by_serie_number,
     get_correlative_number,
     getAllRejectedDocsAllCompanies,
+    get_docs_month_filter,
 };
