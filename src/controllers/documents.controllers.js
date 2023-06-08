@@ -224,7 +224,7 @@ const updateApiDocument = async (req, res, next) => {
 
         const response = await pool.query(
             `UPDATE ${tenant}.document SET states=$1 WHERE cod_sale=$2 or external_id=$2 RETURNING *`, [state, id]);
-        // console.log(response.rows[0]);
+
         res.status(200).json({
             success: true,
             data: {
@@ -248,9 +248,14 @@ const updateDocument = async (req, res, next) => {
     const newData = setNewValues(req.body)
     const response = await pool.query(
         `UPDATE ${tenant}.document SET ${newData} WHERE id_document = $1 RETURNING *`, [id]);
-    res.json({
-        state: 'success',
-        message: "UPDATED"
+    // res.json({
+    //     state: 'success',
+    //     message: "UPDATED"
+    // })
+    res.status(200).json({
+        success: true,
+        message: "Update!",
+        response: response.rows[0],
     })
 };
 
@@ -422,10 +427,21 @@ const reportDocuments = async (req, res, next) => {
 
 const reports = async (req, res, next) => {
     try {
-        const filters = { year: 2023, month: 3 };
-        // const filters = req.query;
-        const docs = await get_docs_month_filter(req.params.tenant, filters)
-        // console.log(docs);
+        const filters = req.query;
+        const { tenant } = req.params;
+        if (!tenant || tenant == 'undefined') {
+            return res.status(404).json({
+                success: false,
+                message: "Cliente no Valido",
+            })
+        }
+        const docs = await get_docs_month_filter(tenant, filters)
+        if (!docs) {
+            return res.status(200).json({
+                success: true,
+                message: "No se encontraron Ventas",
+            })
+        }
         let data = []
         docs.forEach((doc => {
             const { items, ...head } = JSON.parse(doc.json_format)
@@ -433,14 +449,14 @@ const reports = async (req, res, next) => {
                 data.push({ ...head, ...d })
             })
         }))
-        res.status(200).json({
+        return res.status(200).json({
             success: true,
             message: "Report!!",
             data
         })
 
     } catch (error) {
-        console.log(error);
+        // console.log(error);
     }
 }
 

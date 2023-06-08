@@ -38,6 +38,7 @@ CREATE TABLE document(
     response_anulate jsonb,
     id_company bigint,
     external_id VARCHAR(50),
+    verified BOOLEAN,
     PRIMARY KEY (id_document) UNIQUE (serie, numero) -- CONSTRAINT company_document_fk
     --     FOREIGN KEY(id_company) 
     --     REFERENCES company(id_company)
@@ -81,7 +82,7 @@ CREATE TABLE public.tasks(
     time character varying(100),
     PRIMARY KEY (id_task)
 );
--- Add external_id column to all the schemas
+-- Add "external_id" column to all the schemas
 do $$
 declare f record;
 begin for f in
@@ -109,6 +110,21 @@ WHERE nspname !~~ 'pg_%'
 EXECUTE 'SET LOCAL search_path = ' || f.nspname;
 ALTER TABLE document
 ALTER COLUMN cod_sale TYPE VARCHAR(100);
+end loop;
+end;
+$$ -- Add column "verified" to all the schemas
+do $$
+declare f record;
+begin for f in
+SELECT nspname
+FROM pg_namespace n
+WHERE nspname !~~ 'pg_%'
+    AND nspname <> 'information_schema'
+    AND nspname <> 'public' loop raise notice '%',
+    f.nspname;
+EXECUTE 'SET LOCAL search_path = ' || f.nspname;
+ALTER TABLE document
+ADD COLUMN IF NOT EXISTS verified BOOLEAN;
 end loop;
 end;
 $$

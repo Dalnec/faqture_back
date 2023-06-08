@@ -95,12 +95,10 @@ const select_all_documents_to_consult_void = async (tenant) => {
 
 const get_docs_month_filter = async (tenant, filters) => {
     try {
-        console.log(tenant, filters);
         if (!tenant && !filters) { return false; }
         const docs = await pool.query(`SELECT id_document, TO_CHAR(date::DATE, 'yyyy-mm-dd') AS date, cod_sale, type, serie, numero, 
-        customer_number, customer, amount, states, json_format, response_send, response_anulate, id_company, external_id FROM demo.document 
+        customer_number, customer, amount, states, json_format, response_send, response_anulate, id_company, external_id FROM ${tenant}.document 
         WHERE EXTRACT(YEAR FROM date)=${filters.year} AND EXTRACT(MONTH FROM date)=${filters.month} ORDER BY id_document DESC`);
-        console.log(docs);
         if (!docs.rowCount) { return false; }
         return docs.rows;
 
@@ -419,19 +417,12 @@ const getAllRejectedDocsAllCompanies = async () => {
 
     const schemas = await selectAllApiCompany()
     const queries = schemas.map(async schema => {
-        // const { rows } = await pool.query(`SELECT COUNT(states) AS "Rechazados" FROM ${schema.tenant}.document WHERE states = 'R';`)
         const { rows } = await pool.query(`SELECT id_document, TO_CHAR(date::DATE, 'yyyy-mm-dd') AS date, cod_sale, type, serie, numero, 
-        customer_number, customer, amount, states, json_format, response_send, response_anulate, id_company, external_id FROM ${schema.tenant}.document WHERE states = 'R';`)
+        customer_number, customer, amount, states, json_format, response_send, response_anulate, id_company, external_id FROM ${schema.tenant}.document WHERE verified IS NULL AND  states = 'R';`)
         return {
             ...schema,
             rows
         }
-        // if (rows[0].Rechazados != '0') {
-        //     return {
-        //         ...schema,
-        //         ...rows[0]
-        //     }
-        // }
     });
     return await Promise.all(queries)
         .then(values => values.filter(v => v.rows.length > 0))
