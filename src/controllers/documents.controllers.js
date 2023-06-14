@@ -445,6 +445,7 @@ const reports = async (req, res, next) => {
         let data = []
         docs.forEach((doc => {
             const { items, ...head } = JSON.parse(doc.json_format)
+            head.states = doc.states
             items.forEach((d) => {
                 data.push({ ...head, ...d })
             })
