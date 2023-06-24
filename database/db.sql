@@ -38,7 +38,7 @@ CREATE TABLE document(
     response_anulate jsonb,
     id_company bigint,
     external_id VARCHAR(50),
-    verified BOOLEAN,
+    verified BOOLEAN DEFAULT FALSE,
     PRIMARY KEY (id_document) UNIQUE (serie, numero) -- CONSTRAINT company_document_fk
     --     FOREIGN KEY(id_company) 
     --     REFERENCES company(id_company)
