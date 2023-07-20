@@ -1,4 +1,6 @@
 node_modules
 faqture.xlsx
 .env
-faqturedb.backup.gz
+*.gz
+.wwebjs_auth
+credencials-faqture-drive-api.json
