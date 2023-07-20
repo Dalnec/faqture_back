@@ -1,4 +1,5 @@
 const express = require('express');
+const path = require('path')
 const cors = require("cors");
 const morgan = require("morgan");
 const routerAuth = require('./routes/auth.routes')
@@ -7,13 +8,15 @@ const routerTenants = require('./routes/tenants.routes')
 const routerCompanies = require('./routes/companies.routes')
 const routerApi = require('./routes/api.routes')
 const routerTasks = require('./routes/tasks.routes')
+const routerWhatsapp = require('./routes/whatsapp.router');
 
 const app = express()
 
 app.use(cors());
 app.use(morgan("dev"));
-app.use(express.json());
-app.use(express.urlencoded({ extended: false }));
+app.use(express.json({ limit: '50mb' }));
+app.use(express.urlencoded({ limit: '50mb', extended: true }));
+app.use('/static', express.static(path.join(__dirname, 'public')))
 
 //routes
 app.use(routerAuth);
@@ -22,6 +25,7 @@ app.use(routerTenants);
 app.use(routerCompanies);
 app.use(routerApi);
 app.use(routerTasks);
+app.use(routerWhatsapp);
 
 
 // handling errors
