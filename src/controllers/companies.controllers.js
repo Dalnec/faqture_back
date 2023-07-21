@@ -31,7 +31,9 @@ const getCompaniestByFilters = async (req, res, next) => {
 
         filters = setFiltersORCompany(company)
 
-        const response = await pool.query(`SELECT id_company, created::text, company_number, company, tenant, url, token, localtoken, state, autosend, zenda_url, zenda_token, zenda_state FROM public.company ${filters} ORDER BY id_company 
+        const response = await pool.query(`SELECT id_company, created::text, company_number, company, tenant, 
+            url, token, localtoken, state, autosend, zenda_url, zenda_token, zenda_state, token_series 
+            FROM public.company ${filters} ORDER BY id_company 
         LIMIT ${itemsPerPage} OFFSET ${(page - 1) * itemsPerPage}`);
 
         const tocount = await pool.query(`SELECT * FROM public.company ${filters}`)
@@ -60,16 +62,18 @@ const getCompanyId = async (req, res, next) => {
 
 const createCompany = async (req, res, next) => {
     try {
-        const { company_number, company, url, token, tenant, autosend, zenda_url, zenda_token, zenda_state } = req.body
+        const { company_number, company, url, token, tenant, autosend, zenda_url, zenda_token, zenda_state, token_series } = req.body
 
         // const localtoken = encrypt(tenant)
         const localtoken = await encryptPasword(tenant)
         const now = new Date()
 
         const response = await pool.query(
-            `INSERT INTO company(created, modified, company_number, company, url, token, localtoken, tenant, autosend, zenda_url, zenda_token, zenda_state) 
-            VALUES ( $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`,
-            [now, now, company_number, company, url, token, localtoken, tenant, autosend, zenda_url, zenda_token, zenda_state]);
+            `INSERT INTO company(created, modified, company_number, company, url, token, localtoken, 
+                tenant, autosend, zenda_url, zenda_token, zenda_state, token_series) 
+            VALUES ( $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)`,
+            [now, now, company_number, company, url, token, localtoken, tenant, autosend, zenda_url,
+                zenda_token, zenda_state, token_series]);
 
         const createdTenant = createTenantCompany(tenant);
         if (!createdTenant) {

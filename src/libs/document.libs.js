@@ -224,7 +224,17 @@ const formatAnulatePerCompany = async (tenant) => {
 
 
 const sendDoc = async (company, docu) => {
-    const api = new ApiClient(`${company.url}/api/documents`, company.token)
+    let token = company.token
+    if (company.token_series && company.token_series.length > 0) {
+        const sale = JSON.parse(docu.json_format)
+        let branch = company.token_series.find(e => {
+            return e.series.includes(sale.serie_documento)
+        });
+        if (branch) {
+            token = branch.token
+        }
+    }
+    const api = new ApiClient(`${company.url}/api/documents`, token)
     let result = await api.sendDocument(docu.json_format)
 
     if (!result.success) {
@@ -244,7 +254,7 @@ const sendDoc = async (company, docu) => {
     // Guardar nuevo estado del documento
     const doc = await update_document(docu.id_document, company.tenant, result)
     if (!doc)
-        result.state = 'EX'; // updating error
+        result.state = 'U'; // updating error
 
     return result;
 }

@@ -1,7 +1,7 @@
 const { selectApiCompanyById } = require('../libs/company.libs');
 const { ApiClient } = require('../libs/api.libs');
 const { update_doc_api, checkConnection } = require('../libs/connection');
-const { select_document_by_id, select_all_documents, update_document, update_document_anulate, formatAnulate, sendAllDocsPerCompany, formatAnulatePerCompany, verifyingExternalIds, sendAllAnulateDocsPerCompany, countingDocsState, consultAnulation, select_all_documents_to_consult_void, sendAllConsultVoidPerCompany,  } = require('../libs/document.libs');
+const { select_document_by_id, select_all_documents, update_document, update_document_anulate, formatAnulate, sendAllDocsPerCompany, formatAnulatePerCompany, verifyingExternalIds, sendAllAnulateDocsPerCompany, countingDocsState, consultAnulation, select_all_documents_to_consult_void, sendAllConsultVoidPerCompany, sendDoc, } = require('../libs/document.libs');
 
 const sendDocument = async (req, res, next) => {
     const company = await selectApiCompanyById(req.body.id_company)
@@ -11,31 +11,8 @@ const sendDocument = async (req, res, next) => {
     const docu = await select_document_by_id(req.body.id_document, company.tenant)
     if (!docu)
         res.status(405).json({ success: false, message: `Document Finding Error!` })
-    
-    const api = new ApiClient(`${company.url}/api/documents`, company.token)
-    let result = await api.sendDocument(docu.json_format)
 
-    if (!result.success) {
-        result.state = 'X';
-        if (result.message.search('ya se encuentra registrado') > 0) {
-            result.state = 'E';
-        }
-        await update_document(req.body.id_document, company.tenant, result)
-        return res.status(504).json(result);
-    }
-
-    if (docu.states=='S')
-        result.state = 'P';
-    else
-        result.state = 'E';
-
-    if (result.data.state_type_description == 'Rechazado')
-        result.state = 'R';
-
-    // Guardar nuevo estado del documento
-    const doc = await update_document(req.body.id_document, company.tenant, result)
-    if (!doc)
-        res.status(405).json({ success: false, message: `Document Updating Error!` })
+    let result = await sendDoc(company, docu)
 
     const counting = await countingDocsState(company.tenant)
     result.counting = counting
@@ -55,8 +32,8 @@ const sendDocumentAll = async (req, res, next) => {
 
     const counting = await countingDocsState(company.tenant)
 
-    return res.status(200).json({ 
-        success: true, 
+    return res.status(200).json({
+        success: true,
         message: 'Comprobantes Nuevos Enviados',
         num_aceptados: `Aceptados ${num_aceptados}`,
         num_rechazados: `Rechazados ${num_rechazados}`,
@@ -73,8 +50,8 @@ const anulateDocument = async (req, res, next) => {
 
     const format = await formatAnulate(req.body.id_document, company.tenant)
     if (!format)
-    return res.status(405).json({ success: false, message: `Document Error1!` })
-    
+        return res.status(405).json({ success: false, message: `Document Error1!` })
+
     let api;
     let type;
     if (!!format.codigo_tipo_proceso) {
@@ -126,7 +103,7 @@ const anulateDocumentAll = async (req, res, next) => {
         return res.status(405).json({ success: false, message: `No hay documentos Por Anular!` })
 
     //update state in API
-    const api_doc = await update_doc_api('', company.url)    
+    const api_doc = await update_doc_api('', company.url)
     if (api_doc)
         return res.status(405).json({ success: false, message: `API Documents Error!` })
 
@@ -137,7 +114,7 @@ const anulateDocumentAll = async (req, res, next) => {
 
     const counting = await countingDocsState(company.tenant)
 
-    return res.status(200).json({ 
+    return res.status(200).json({
         success: true,
         message: 'Comprobantes Enviados Anulados',
         num_anulados: `Anulados ${num_anulados}`,
@@ -150,11 +127,11 @@ const consultAnulateDocument = async (req, res, next) => {
     const company = await selectApiCompanyById(req.body.id_company)
     if (!company)
         return res.status(405).json({ success: false, message: 'Company Error!' })
-    
+
     const docu = await select_document_by_id(req.body.id_document, company.tenant)
     if (!docu)
         return res.status(405).json({ success: false, message: 'Document Finding Error!' })
-    
+
     const result = await consultAnulation(docu.response_anulate, company)
     if (result.success) {
         result.state = 'A';
@@ -172,18 +149,18 @@ const consultAnulateDocumentAll = async (req, res, next) => {
     const company = await selectApiCompanyById(req.body.id_company)
     if (!company)
         return res.status(405).json({ success: false, message: 'Company Error!' })
-    
+
     const docs = await select_all_documents_to_consult_void(company.tenant)
     if (!docs)
         res.status(405).json({ success: false, message: 'Error finding documents!' })
-    
+
     const { num_anulados, num_error, num_error_updating } = await sendAllConsultVoidPerCompany(company, docs)
 
     const counting = await countingDocsState(company.tenant)
     result.counting = counting
 
-    return res.status(200).json({ 
-        success: true, 
+    return res.status(200).json({
+        success: true,
         message: 'Anulaciones Consultadas',
         num_anulados: `Consultados ${num_anulados}`,
         num_error: `Con error ${num_error}`,
@@ -202,9 +179,9 @@ const verifyExternalIds = async (req, res, next) => {
     const { num_aceptados, num_rechazados, num_por_anular, num_anulados } = await verifyingExternalIds(company.tenant, api)
 
     const counting = await countingDocsState(company.tenant)
-    
-    return res.status(200).json({ 
-        success: true, 
+
+    return res.status(200).json({
+        success: true,
         message: 'Comprobantes Actualizados',
         num_aceptados: `Aceptados ${num_aceptados}`,
         num_rechazados: `Rechazados ${num_rechazados}`,
@@ -217,12 +194,12 @@ const verifyExternalIds = async (req, res, next) => {
 const verifyMySqlConnection = async (req, res, next) => {
     const verify_data = await checkConnection(req.query.url)
     if (!verify_data) {
-        return res.status(409).json({ 
+        return res.status(409).json({
             success: false,
             data: verify_data,
         });
     }
-    return res.status(200).json({ 
+    return res.status(200).json({
         success: true,
         data: verify_data,
     });

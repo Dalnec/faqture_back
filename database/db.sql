@@ -15,6 +15,7 @@ CREATE TABLE public.company(
     zenda_url character varying(255),
     zenda_token character varying(255),
     zenda_state BOOLEAN NOT NULL DEFAULT TRUE,
+    token_series jsonb,
     PRIMARY KEY (id_company)
 );
 CREATE TABLE document(
