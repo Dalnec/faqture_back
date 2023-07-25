@@ -37,7 +37,7 @@ const create_mysql_connection = (url) => {
     }
     const tunnelConfig = {
         host: process.env.DB_SSH_HOST,
-        port: 22,
+        port: 7236,
         username: process.env.DB_SSH_USER,
         password: process.env.DB_SSH_PASSWORD
     }
