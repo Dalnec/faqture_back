@@ -1,5 +1,4 @@
-// import { nanoid } from 'nanoid'
-const { nanoid } = require('nanoid')
+const { customAlphabet } = require('nanoid')
 const pool = require('../db');
 const { setNewValues, setFiltersOR, setFiltersDocs } = require('../libs/functions')
 const { sendDoc, get_correlative_number, select_document_by_serie_number, verifyingExternalIds, getAllRejectedDocsAllCompanies, get_docs_month_filter } = require('../libs/document.libs');
@@ -7,6 +6,8 @@ const { selectApiCompanyById, getCompanyByNumber } = require('../libs/company.li
 const axios = require('axios');
 const { ApiClient } = require('../libs/api.libs');
 const { listReportDocuments } = require('../libs/connection');
+
+const nanoid = customAlphabet('1234567890abcdef', 20)
 
 const getDocuments = async (req, res, next) => {
     const tenant = req.params.tenant;
@@ -370,19 +371,25 @@ const externalIdFormatNotaCredito = async (req, res, next) => {
 
 };
 
-const changeDate = async (req, res, next) => {
+const updateJsonFormat = async (req, res, next) => {
     try {
-        const newDate = req.body.newdate;
-        const tenant = req.body.tenant;
-        const documents = await pool.query(`SELECT * FROM ${tenant}.document WHERE type='01'`);
-        console.log(documents.rows.length);
+        const { docs, fecha_de_emision, hora_de_emision, fecha_de_vencimiento } = req.body;
+        const { tenant } = req.params;
+        const placeholders = docs.map((_, i) => `$${i + 1}`).join(',');
+        const documents = await pool.query(`SELECT * FROM ${tenant}.document WHERE id_document IN (${placeholders})`, docs);
         let formato
         for await (let row of documents.rows) {
             formato = {}
             formato = JSON.parse(row.json_format)
-            formato = { ...formato, fecha_de_emision: newDate, fecha_de_vencimiento: newDate }
+            formato = {
+                ...formato,
+                fecha_de_emision: fecha_de_emision || formato.fecha_de_emision,
+                hora_de_emision: hora_de_emision || formato.hora_de_emision,
+                fecha_de_vencimiento: fecha_de_vencimiento || formato.fecha_de_vencimiento
+            }
             formato = JSON.stringify(formato, null, 4)
-            const response = await pool.query(`UPDATE ${tenant}.document SET json_format=$1 WHERE id_document = $2 RETURNING *`, [JSON.stringify(formato, null, 4), row.id_document]);
+            const response = await pool.query(`UPDATE ${tenant}.document SET json_format = $1 WHERE id_document = $2 RETURNING * `, [JSON.stringify(formato, null, 4), row.id_document]);
+            // console.log(response);
         }
         res.status(200).json({
             success: true,
@@ -399,7 +406,7 @@ const getRejected = async (req, res, next) => {
         const results = await getAllRejectedDocsAllCompanies()
         res.status(200).json({
             success: true,
-            message: "Rejected Documentes!",
+            message: "Rejected Documents!",
             results,
         })
 
@@ -475,8 +482,8 @@ module.exports = {
     createApiDocument,
     externalIdFormatNotaCredito,
     getXML,
-    changeDate,
     reportDocuments,
     getRejected,
     reports,
+    updateJsonFormat,
 };
