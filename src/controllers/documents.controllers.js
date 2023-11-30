@@ -374,9 +374,10 @@ const externalIdFormatNotaCredito = async (req, res, next) => {
 const updateJsonFormat = async (req, res, next) => {
     try {
         const { docs, fecha_de_emision, hora_de_emision, fecha_de_vencimiento } = req.body;
+        let { states } = req.body;
         const { tenant } = req.params;
         const placeholders = docs.map((_, i) => `$${i + 1}`).join(',');
-        const documents = await pool.query(`SELECT * FROM ${tenant}.document WHERE id_document IN (${placeholders})`, docs);
+        const documents = await pool.query(`SELECT id_document, json_format, states FROM ${tenant}.document WHERE id_document IN (${placeholders})`, docs);
         let formato
         for await (let row of documents.rows) {
             formato = {}
@@ -388,7 +389,8 @@ const updateJsonFormat = async (req, res, next) => {
                 fecha_de_vencimiento: fecha_de_vencimiento || formato.fecha_de_vencimiento
             }
             formato = JSON.stringify(formato, null, 4)
-            const response = await pool.query(`UPDATE ${tenant}.document SET json_format = $1 WHERE id_document = $2 RETURNING * `, [JSON.stringify(formato, null, 4), row.id_document]);
+            states = states || row.states
+            const response = await pool.query(`UPDATE ${tenant}.document SET json_format = $1, states = $2 WHERE id_document = $3 RETURNING * `, [JSON.stringify(formato, null, 4), states, row.id_document]);
             // console.log(response);
         }
         res.status(200).json({
