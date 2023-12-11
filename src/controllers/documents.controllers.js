@@ -1,12 +1,13 @@
 const { customAlphabet } = require('nanoid')
 const pool = require('../db');
 const { setNewValues, setFiltersOR, setFiltersDocs } = require('../libs/functions')
-const { sendDoc, get_correlative_number, select_document_by_serie_number, verifyingExternalIds, getAllRejectedDocsAllCompanies, get_docs_month_filter } = require('../libs/document.libs');
-const { selectApiCompanyById, getCompanyByNumber } = require('../libs/company.libs');
+const { sendDoc, get_correlative_number, select_document_by_serie_number, verifyingExternalIds, getAllRejectedDocsAllCompanies, get_docs_month_filter, select_document_by_external_id } = require('../libs/document.libs');
+const { selectApiCompanyById, getCompanyByNumber, getCompanyByTenant } = require('../libs/company.libs');
 const axios = require('axios');
 const { ApiClient } = require('../libs/api.libs');
 const { listReportDocuments } = require('../libs/connection');
-
+const fs = require('fs');
+const path = require('path');
 const nanoid = customAlphabet('1234567890abcdef', 20)
 
 const getDocuments = async (req, res, next) => {
@@ -306,6 +307,9 @@ const getDocumentCustomers = async (req, res, next) => {
 const getXML = async (req, res, next) => {
     try {
         const { ruc, serie, numero, tipo } = req.body;
+        if (!ruc || !serie || !numero) {
+            return res.status(400).json({ success: false, message: 'Faltan datos' })
+        }
         const company = await getCompanyByNumber(ruc)
         if (!company) {
             return res.status(400).json({ success: false, message: 'RUC no encontrado' })
@@ -314,7 +318,6 @@ const getXML = async (req, res, next) => {
         if (!doc) {
             return res.status(400).json({ success: false, message: 'Documento no encontrado' })
         }
-
         let xml
         if (!!doc.response_send) {
             if (!JSON.parse(doc.response_send).success) {
@@ -339,6 +342,69 @@ const getXML = async (req, res, next) => {
         res.status(200).send(str_xml);
     } catch (error) {
         console.log(error);
+    }
+}
+const getXMLByTenant = async (req, res, next) => {
+    try {
+        const { tenant, external_id } = req.params;
+        if (!external_id) {
+            return res.status(400).json({ success: false, message: 'External ID no encontrado' })
+        }
+        const company = await getCompanyByTenant(tenant)
+        if (!company) {
+            return res.status(400).json({ success: false, message: 'Cliente no encontrado' })
+        }
+        let doc = await select_document_by_external_id(external_id, company.tenant)
+        if (!doc) {
+            return res.status(400).json({ success: false, message: 'Documento no encontrado' })
+        }
+        let xml, filename
+        if (!!doc.response_send) {
+            let response_send = JSON.parse(doc.response_send)
+            if (!response_send.success) {
+                const api = new ApiClient(`${company.url}/api/documents/lists/`, company.token)
+                const rpta = await verifyingExternalIds(company.tenant, api)
+                doc = await select_document_by_external_id(external_id, company.tenant)
+            }
+            filename = response_send.data.filename
+            xml = response_send.links.xml
+        } else {
+            const result = await sendDoc(company, doc)
+            filename = result.response_send.data.data.filename
+            xml = result.response_send.data.links
+        }
+
+        const localFilePath = path.join(__dirname, `../../uploads/${filename}.xml`);
+        const response = await axios({
+            method: 'get',
+            url: xml,
+            responseType: 'stream'
+        });
+
+        const writer = fs.createWriteStream(localFilePath);
+        response.data.pipe(writer);
+
+        writer.on('finish', () => {
+            res.download(localFilePath, function (err) {
+                if (err) {
+                    console.log('Error downloading the file:', err);
+                } else {
+                    console.log('File downloaded successfully');
+                    fs.unlinkSync(localFilePath);
+                }
+            });
+        });
+
+        writer.on('error', (err) => {
+            console.error('Error writing the file:', err);
+            return res.status(500).json({
+                message: "Could not download file. Error: " + error,
+            });
+        });
+    } catch (error) {
+        return res.status(500).json({
+            message: "Could not download file. Error: " + error,
+        });
     }
 }
 
@@ -488,4 +554,5 @@ module.exports = {
     getRejected,
     reports,
     updateJsonFormat,
+    getXMLByTenant,
 };

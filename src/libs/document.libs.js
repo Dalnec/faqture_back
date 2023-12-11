@@ -18,7 +18,7 @@ const select_document_by_id = async (id, tenant) => {
 const select_document_by_external_id = async (external_id, tenant) => {
     try {
         if (!tenant) { return false; }
-        const docs = await pool.query(`SELECT id_document, json_format, response_send, response_anulate, states, type FROM ${tenant}.document WHERE external_id=$1`, [external_id]);
+        const docs = await pool.query(`SELECT id_document, json_format, response_send, response_anulate, states, type, external_id FROM ${tenant}.document WHERE external_id=$1`, [external_id]);
         if (!docs.rowCount) { return false; }
         return docs.rows[0];
 
@@ -251,6 +251,7 @@ const sendDoc = async (company, docu) => {
         if (result.data.state_type_description == 'Rechazado')
             result.state = 'R';
     }
+    result.external_id = docu.external_id
     // Guardar nuevo estado del documento
     const doc = await update_document(docu.id_document, company.tenant, result)
     if (!doc)

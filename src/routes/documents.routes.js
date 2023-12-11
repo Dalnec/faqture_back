@@ -6,7 +6,7 @@ const router = Router();
 
 const { getDocuments, getDocumentById, createDocument, updateDocument, deleteDocument, getDocumentByFilters,
     getDocumentCustomers, getDocumentByFiltersReport, updateApiDocument, clearDocuments, createApiDocument,
-    externalIdFormatNotaCredito, getXML, reportDocuments, getRejected, reports, updateJsonFormat } = require('../controllers/documents.controllers');
+    externalIdFormatNotaCredito, getXML, getXMLByTenant, reportDocuments, getRejected, reports, updateJsonFormat } = require('../controllers/documents.controllers');
 const { verifyCompanyByTenant } = require('../middlewares/company.middleware');
 
 // router.get('/documents/:tenant', [verifyToken], getDocuments)
@@ -28,7 +28,8 @@ router.get('/api/documents/reports/:tenant', reports)
 router.post('/api/documents/:tenant', verifyLocalToken, createApiDocument)
 router.put('/api/documents/:tenant/:id', verifyLocalToken, updateApiDocument)
 
-router.post('/downloads/document/xml', getXML)
+router.get('/documents/:tenant/xml/:external_id', getXMLByTenant)
+router.get('/downloads/document/xml', getXML)
 router.get('/api/documents/report/accountant/:tenant', [verifyCompanyByTenant], reportDocuments)
 
 module.exports = router;

@@ -48,4 +48,15 @@ const getCompanyByNumber = async (ruc) => {
 
 };
 
-module.exports = { selectApiCompanyById, selectAllApiCompany, getCompanyByNumber, selectApiCompanyByTenant };
+const getCompanyByTenant = async (tenant) => {
+    try {
+        const company = await pool.query('SELECT * FROM public.company WHERE tenant = $1', [tenant]);
+        if (!company.rowCount) { return false; }
+        return company.rows[0]
+    } catch (error) {
+        return false;
+    }
+
+};
+
+module.exports = { selectApiCompanyById, selectAllApiCompany, getCompanyByNumber, selectApiCompanyByTenant, getCompanyByTenant };
