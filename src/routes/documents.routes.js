@@ -6,7 +6,7 @@ const router = Router();
 
 const { getDocuments, getDocumentById, createDocument, updateDocument, deleteDocument, getDocumentByFilters,
     getDocumentCustomers, getDocumentByFiltersReport, updateApiDocument, clearDocuments, createApiDocument,
-    externalIdFormatNotaCredito, getXML, getXMLByTenant, reportDocuments, getRejected, reports, updateJsonFormat } = require('../controllers/documents.controllers');
+    externalIdFormatNotaCredito, getXML, getXMLByTenant, reportDocuments, getRejected, reports, updateJsonFormat, verifyDocumentBySerieNumber } = require('../controllers/documents.controllers');
 const { verifyCompanyByTenant } = require('../middlewares/company.middleware');
 
 // router.get('/documents/:tenant', [verifyToken], getDocuments)
@@ -21,6 +21,7 @@ router.post('/documents/clear/:tenant', [verifyToken], clearDocuments)
 router.put('/documents/nota-credito-format/:tenant/:id', externalIdFormatNotaCredito)
 router.get('/documents/rejected', getRejected)
 router.post('/documents/update/:tenant/json', updateJsonFormat)
+router.post('/documents/:tenant/verify', verifyLocalToken, verifyDocumentBySerieNumber)
 // Pinche Zendita
 router.get('/api/documents/:tenant', verifyLocalToken, getDocumentByFilters)
 router.get('/api/documents/report/:tenant', getDocumentByFiltersReport)

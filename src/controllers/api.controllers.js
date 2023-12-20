@@ -2,6 +2,8 @@ const { selectApiCompanyById } = require('../libs/company.libs');
 const { ApiClient } = require('../libs/api.libs');
 const { update_doc_api, checkConnection } = require('../libs/connection');
 const { select_document_by_id, select_all_documents, update_document, update_document_anulate, formatAnulate, sendAllDocsPerCompany, formatAnulatePerCompany, verifyingExternalIds, sendAllAnulateDocsPerCompany, countingDocsState, consultAnulation, select_all_documents_to_consult_void, sendAllConsultVoidPerCompany, sendDoc, } = require('../libs/document.libs');
+const { getSettingApiRuc } = require('../libs/settings.lib');
+const { ApiRUC } = require('../libs/apiClient.lib');
 
 const sendDocument = async (req, res, next) => {
     const company = await selectApiCompanyById(req.body.id_company)
@@ -204,6 +206,22 @@ const verifyMySqlConnection = async (req, res, next) => {
         data: verify_data,
     });
 }
+
+const getCustomerData = async (req, res, next) => {
+    const ruc = req.params.ruc
+    if (!ruc)
+        return res.status(405).json({ success: false, message: `RUC Error!` })
+
+    const setting = await getSettingApiRuc()
+    if (!setting)
+        return res.status(405).json({ success: false, message: `Settings Error!` })
+    const [token, url] = setting
+    const api = new ApiRUC(`${url.value}/ruc/${ruc}`, token.value)
+    const response = await api.getData()
+    return res.status(200).json(response)
+
+}
+
 module.exports = {
     sendDocument,
     anulateDocument,
@@ -213,4 +231,5 @@ module.exports = {
     consultAnulateDocumentAll,
     verifyExternalIds,
     verifyMySqlConnection,
+    getCustomerData,
 };

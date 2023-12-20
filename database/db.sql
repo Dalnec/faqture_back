@@ -73,6 +73,7 @@ ADD COLUMN localtoken varying(255) constraint;
 ALTER TABLE public.user DROP COLUMN token
 ALTER TABLE public.company
 ADD COLUMN autosend BOOLEAN NOT NULL DEFAULT FALSE;
+-- TASK TABLE
 CREATE TABLE public.tasks(
     id_task SERIAL,
     created timestamp NOT NULL,
@@ -82,6 +83,16 @@ CREATE TABLE public.tasks(
     on_off BOOLEAN NOT NULL DEFAULT FALSE,
     time character varying(100),
     PRIMARY KEY (id_task)
+);
+-- SETTINGS TABLE
+CREATE TABLE public.settings(
+    id_settings SMALLINT,
+    key character varying(100) NOT NULL,
+    value character varying(255) NOT NULL,
+    description character varying(255) NULL,
+    category character varying(100) NOT NULL,
+    active BOOLEAN NOT NULL DEFAULT TRUE,
+    PRIMARY KEY (id_settings)
 );
 -- Add "external_id" column to all the schemas
 do $$

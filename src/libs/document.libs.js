@@ -31,7 +31,7 @@ const select_document_by_external_id = async (external_id, tenant) => {
 const select_document_by_serie_number = async (tenant, serie, numero) => {
     try {
         if (!tenant) { return false; }
-        const docs = await pool.query(`SELECT id_document, json_format, response_send, response_anulate, states, external_id FROM ${tenant}.document WHERE serie=$1 AND numero=$2`, [serie, numero]);
+        const docs = await pool.query(`SELECT id_document, cod_sale, json_format, response_send, response_anulate, states, external_id FROM ${tenant}.document WHERE serie=$1 AND numero=$2`, [serie, numero]);
         if (!docs.rowCount) { return false; }
         return docs.rows[0];
 
@@ -288,6 +288,7 @@ const sendAllDocsPerCompany = async (company, api, docus) => {
                 result.state = 'R';
                 num_rechazados += 1;
             }
+            result.external_id = docu.external_id
             // Guardar nuevo estado del documento
             const doc = await update_document(docu.id_document, company.tenant, result)
             if (!doc)
@@ -503,7 +504,8 @@ const verifyingExternalIds = async (tenant, api) => {
                         pdf: element.download_pdf,
                         cdr: element.download_cdr
                     },
-                    state: (state_actual == 'P' && state == 'E') ? state = 'P' : state
+                    state: (state_actual == 'P' && state == 'E') ? state = 'P' : state,
+                    external_id: d[0].external_id
                 }
                 await update_document(d[0].id_document, tenant, response_send);
             }

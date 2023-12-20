@@ -536,6 +536,35 @@ const reports = async (req, res, next) => {
     }
 }
 
+const verifyDocumentBySerieNumber = async (req, res, next) => {
+    try {
+        const tenant = req.params.tenant;
+        const { serie, number } = req.body
+        const response = await select_document_by_serie_number(tenant, serie, number);
+        if (!response) {
+            return res.status(404).json({
+                success: false,
+                message: "No se encontraron Documentos",
+            })
+        }
+
+        res.status(200).json({
+            success: true,
+            data: {
+                cod_sale: response.cod_sale,
+                filename: JSON.parse(response.response_send).data.filename,
+                state: response.states,
+                external_id: response.external_id,
+            }
+        })
+    } catch (error) {
+        res.status(401).json({
+            success: false,
+            message: error.message
+        })
+    }
+};
+
 module.exports = {
     getDocuments,
     createDocument,
@@ -555,4 +584,5 @@ module.exports = {
     reports,
     updateJsonFormat,
     getXMLByTenant,
+    verifyDocumentBySerieNumber,
 };
