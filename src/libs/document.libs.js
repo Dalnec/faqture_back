@@ -430,7 +430,7 @@ const getAllRejectedDocsAllCompanies = async () => {
     const schemas = await selectAllApiCompany()
     const queries = schemas.map(async schema => {
         const { rows } = await pool.query(`SELECT id_document, TO_CHAR(date::DATE, 'yyyy-mm-dd') AS date, cod_sale, type, serie, numero, 
-        customer_number, customer, amount, states, json_format, response_send, response_anulate, id_company, external_id FROM ${schema.tenant}.document WHERE verified IS NULL AND  states = 'R';`)
+        customer_number, customer, amount, states, json_format, response_send, response_anulate, id_company, external_id FROM ${schema.tenant}.document WHERE verified IS NOT TRUE AND  states = 'R';`)
         return {
             ...schema,
             rows
