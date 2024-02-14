@@ -8,6 +8,7 @@ const { ApiClient } = require('../libs/api.libs');
 const { listReportDocuments } = require('../libs/connection');
 const fs = require('fs');
 const path = require('path');
+const { ApiZenda } = require('../libs/apiZenda.libs');
 const nanoid = customAlphabet('1234567890abcdef', 20)
 
 const getDocuments = async (req, res, next) => {
@@ -500,6 +501,26 @@ const reportDocuments = async (req, res, next) => {
     }
 }
 
+const reportConcar = async (req, res, next) => {
+    /* Get Data from Pro5 */
+    try {
+        const { type, tenant } = req.params;
+        const filters = req.query;
+        const { zenda_url, zenda_token } = await getCompanyByTenant(tenant)
+        const url = `${zenda_url}api/${type}-concar`;
+        const api = new ApiZenda(url, zenda_token, filters);
+        const docs = await api.getData();
+        res.status(200).json({
+            success: true,
+            message: "Report!!",
+            data: docs
+        })
+
+    } catch (error) {
+        console.log(error);
+    }
+}
+
 const reports = async (req, res, next) => {
     try {
         const filters = req.query;
@@ -585,4 +606,5 @@ module.exports = {
     updateJsonFormat,
     getXMLByTenant,
     verifyDocumentBySerieNumber,
+    reportConcar,
 };
