@@ -557,6 +557,43 @@ const reports = async (req, res, next) => {
     }
 }
 
+
+const reportContaSisCorp = async (req, res, next) => {
+    try {
+        const filters = req.query;
+        const { tenant } = req.params;
+        if (!tenant || tenant == 'undefined') {
+            return res.status(404).json({
+                success: false,
+                message: "Cliente no Valido",
+            })
+        }
+        const docs = await get_docs_month_filter(tenant, filters)
+        if (!docs) {
+            return res.status(200).json({
+                success: true,
+                message: "No se encontraron Ventas",
+            })
+        }
+        let data = docs.map((doc => {
+            const json_format = JSON.parse(doc.json_format);
+            delete doc.json_format;
+            return {
+                ...doc,
+                ...json_format,
+            }
+        }))
+        return res.status(200).json({
+            success: true,
+            message: "Report CONTASISCORP!!",
+            data
+        })
+
+    } catch (error) {
+        console.log(error);
+    }
+}
+
 const verifyDocumentBySerieNumber = async (req, res, next) => {
     try {
         const tenant = req.params.tenant;
@@ -607,4 +644,5 @@ module.exports = {
     getXMLByTenant,
     verifyDocumentBySerieNumber,
     reportConcar,
+    reportContaSisCorp,
 };
