@@ -576,34 +576,35 @@ const reportContaSisCorp = async (req, res, next) => {
             });
         }
 
-        const data = await Promise.all(
-            docs.map(async (doc) => {
-                const json_format = JSON.parse(doc.json_format);
-                delete doc.json_format;
-                delete doc.response_send;
-                delete doc.response_anulate;
-                delete doc.external_id;
-                delete doc.id_company;
-                delete json_format.id_venta;
-                delete json_format.informacion_adicional;
+        const data = [];
+        for (const doc of docs) {
+            const json_format = JSON.parse(doc.json_format);
+            delete doc.json_format;
+            delete doc.response_send;
+            delete doc.response_anulate;
+            delete doc.external_id;
+            delete doc.id_company;
+            delete json_format.id_venta;
+            delete json_format.informacion_adicional;
 
-                if (doc.type == '07') {
-                    const affected = await select_document_by_serie_number(
-                        tenant,
-                        json_format.documento_afectado.serie_documento,
-                        json_format.documento_afectado.numero_documento
-                    );
-                    if (affected) {
-                        json_format.documento_afectado.fecha_documento = affected.fecha_de_emision;
-                    }
+            if (doc.type == '07') {
+                const affected = await select_document_by_serie_number(
+                    tenant,
+                    json_format.documento_afectado.serie_documento,
+                    json_format.documento_afectado.numero_documento
+                );
+                if (affected) {
+                    json_format.documento_afectado.fecha_documento = JSON.parse(affected.json_format).fecha_de_emision;
+                } else {
+                    json_format.documento_afectado.fecha_documento = null;
                 }
+            }
 
-                return {
-                    ...doc,
-                    ...json_format,
-                };
-            })
-        );
+            data.push({
+                ...doc,
+                ...json_format,
+            });
+        }
 
         return res.status(200).json({
             success: true,
@@ -619,6 +620,7 @@ const reportContaSisCorp = async (req, res, next) => {
         });
     }
 };
+
 
 const verifyDocumentBySerieNumber = async (req, res, next) => {
     try {
