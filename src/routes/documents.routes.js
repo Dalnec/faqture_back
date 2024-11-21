@@ -34,6 +34,6 @@ router.get('/documents/:tenant/xml/:external_id', getXMLByTenant)
 router.get('/downloads/document/xml', getXML)
 router.get('/api/documents/report/accountant/:tenant', [verifyCompanyByTenant], reportDocuments)
 router.get('/api/documents/report/concar/:type/:tenant', [verifyCompanyByTenant], reportConcar)
-router.get('/api/documents/reports/contasiscorp/:tenant', [verifyCompanyByTenant], reportContaSisCorp)
+router.get('/api/documents/reports/contasiscorp/:tenant', [verifyLocalToken], reportContaSisCorp)
 
 module.exports = router;
