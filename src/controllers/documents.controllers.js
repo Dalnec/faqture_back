@@ -566,49 +566,59 @@ const reportContaSisCorp = async (req, res, next) => {
             return res.status(404).json({
                 success: false,
                 message: "Cliente no Valido",
-            })
+            });
         }
-        const docs = await get_docs_month_filter(tenant, filters)
+        const docs = await get_docs_month_filter(tenant, filters);
         if (!docs) {
             return res.status(200).json({
                 success: true,
                 message: "No se encontraron Ventas",
-            })
+            });
         }
-        let data = docs.map((doc => {
-            const json_format = JSON.parse(doc.json_format);
-            delete doc.json_format;
-            delete doc.response_send;
-            delete doc.response_anulate;
-            delete doc.external_id;
-            delete doc.id_company;
-            delete json_format.id_venta;
-            delete json_format.informacion_adicional;
-            if (doc.type == '07') {
-                const affected = select_document_by_serie_number(
-                    tenant,
-                    json_format.documento_afectado.serie_documento,
-                    json_format.documento_afectado.numero_documento
-                );
-                if (affected) {
-                    json_format.documento_afectado.fecha_documento = affected.fecha_de_emision;
+
+        const data = await Promise.all(
+            docs.map(async (doc) => {
+                const json_format = JSON.parse(doc.json_format);
+                delete doc.json_format;
+                delete doc.response_send;
+                delete doc.response_anulate;
+                delete doc.external_id;
+                delete doc.id_company;
+                delete json_format.id_venta;
+                delete json_format.informacion_adicional;
+
+                if (doc.type == '07') {
+                    const affected = await select_document_by_serie_number(
+                        tenant,
+                        json_format.documento_afectado.serie_documento,
+                        json_format.documento_afectado.numero_documento
+                    );
+                    if (affected) {
+                        json_format.documento_afectado.fecha_documento = affected.fecha_de_emision;
+                    }
                 }
-            }
-            return {
-                ...doc,
-                ...json_format,
-            }
-        }))
+
+                return {
+                    ...doc,
+                    ...json_format,
+                };
+            })
+        );
+
         return res.status(200).json({
             success: true,
             message: "Report CONTASISCORP!!",
-            data
-        })
+            data,
+        });
 
     } catch (error) {
         console.log(error);
+        return res.status(500).json({
+            success: false,
+            message: "Error al generar el reporte",
+        });
     }
-}
+};
 
 const verifyDocumentBySerieNumber = async (req, res, next) => {
     try {
