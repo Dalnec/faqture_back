@@ -584,6 +584,16 @@ const reportContaSisCorp = async (req, res, next) => {
             delete doc.id_company;
             delete json_format.id_venta;
             delete json_format.informacion_adicional;
+            if (doc.type == '07') {
+                const affected = select_document_by_serie_number(
+                    tenant,
+                    json_format.documento_afectado.serie_documento,
+                    json_format.documento_afectado.numero_documento
+                );
+                if (affected) {
+                    json_format.documento_afectado.fecha_documento = affected.fecha_de_emision;
+                }
+            }
             return {
                 ...doc,
                 ...json_format,
