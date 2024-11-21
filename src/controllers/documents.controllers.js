@@ -578,6 +578,12 @@ const reportContaSisCorp = async (req, res, next) => {
         let data = docs.map((doc => {
             const json_format = JSON.parse(doc.json_format);
             delete doc.json_format;
+            delete doc.response_send;
+            delete doc.response_anulate;
+            delete doc.external_id;
+            delete doc.id_company;
+            delete json_format.id_venta;
+            delete json_format.informacion_adicional;
             return {
                 ...doc,
                 ...json_format,
