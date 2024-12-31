@@ -1,9 +1,10 @@
-const {Router} = require('express');
-const {verifyToken} = require("../middlewares/verifyToken");
+const { Router } = require('express');
+const { verifyToken } = require("../middlewares/verifyToken");
 const router = Router();
 
-const { getCompanyId, getCompaniestByFilters, createCompany, 
-    updateCompany, deleteCompany, generateToken, getCompaniesList, leerExcel, clearCompanyDocs } = require('../controllers/companies.controllers')
+const { getCompanyId, getCompaniestByFilters, createCompany,
+    updateCompany, deleteCompany, generateToken, getCompaniesList,
+    leerExcel, clearCompanyDocs, disableAutoSendCompanies } = require('../controllers/companies.controllers')
 
 router.get('/companies/:id', getCompanyId)
 router.get('/companies', getCompaniestByFilters)
@@ -14,5 +15,6 @@ router.post('/companies/generateToken', generateToken)
 router.get('/companies-list', getCompaniesList)
 router.post('/companies-excel', leerExcel)
 router.post('/companies/clear/:id', [verifyToken], clearCompanyDocs)
+router.put('/companies/disable-auto-send/all', disableAutoSendCompanies)
 
 module.exports = router;

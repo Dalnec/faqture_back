@@ -9,6 +9,7 @@ const { listReportDocuments } = require('../libs/connection');
 const fs = require('fs');
 const path = require('path');
 const { ApiZenda } = require('../libs/apiZenda.libs');
+const { adaptGuiaTransportista } = require('../models/apiSunat/adaptGuiaTransportista');
 const nanoid = customAlphabet('1234567890abcdef', 20)
 
 const getDocuments = async (req, res, next) => {
@@ -77,20 +78,39 @@ const createDocument = async (req, res, next) => {
         // console.log(req.body);
         const { company, company_number } = req.params
 
-        const { id_venta, fecha_de_emision, hora_de_emision, codigo_tipo_documento, serie_documento,
-            numero_documento, datos_del_cliente_o_receptor, totales } = document
+        const { codigo_tipo_documento } = document
+
+        if (!codigo_tipo_documento) {
+            return res.status(400).json({ error: "El codigo de documento es requerido" });
+        }
+        let response;
+        let values;
+
+        const { id_venta, fecha_de_emision, hora_de_emision, serie_documento,
+            numero_documento } = document
+
         const now = new Date()
         const date = `${fecha_de_emision} ${hora_de_emision}`
         const external_id = nanoid()
 
-        const response = await pool.query(
-            `INSERT INTO ${tenant}.document(created, modified, date, cod_sale, type, serie, numero, 
-                customer_number, customer, amount, states, json_format, id_company, external_id) 
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14 ) RETURNING *`,
-            [now, now, date, id_venta, codigo_tipo_documento, serie_documento,
+        if (codigo_tipo_documento !== '31') {
+            const { datos_del_cliente_o_receptor, totales } = document
+            values = [now, now, date, `${id_venta}-${codigo_tipo_documento}-${serie_documento}`, codigo_tipo_documento, serie_documento,
                 numero_documento, datos_del_cliente_o_receptor.numero_documento,
                 datos_del_cliente_o_receptor.apellidos_y_nombres_o_razon_social,
-                totales.total_venta, 'N', JSON.stringify(strdocument, null, 4), company, external_id]);
+                totales.total_venta, 'N', JSON.stringify(strdocument, null, 4), company, external_id]
+        } else {
+            const { destinatario } = document
+            values = [now, now, date, id_venta, codigo_tipo_documento, serie_documento,
+                numero_documento, destinatario.numero_documento,
+                destinatario.apellidos_y_nombres_o_razon_social,
+                0, 'N', JSON.stringify(strdocument, null, 4), company, external_id]
+        }
+        response = await pool.query(
+            `INSERT INTO ${tenant}.document(created, modified, date, cod_sale, type, serie, numero, 
+                customer_number, customer, amount, states, json_format, id_company, external_id) 
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14 ) RETURNING *`, values
+        );
 
         let result = {}
         const apiCompany = await selectApiCompanyById(company)
@@ -142,7 +162,7 @@ const createApiDocument = async (req, res, next) => {
             `INSERT INTO ${tenant}.document(created, modified, date, cod_sale, type, serie, numero, 
                 customer_number, customer, amount, states, json_format, id_company, external_id) 
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14 ) RETURNING *`,
-            [now, now, date, id_venta, codigo_tipo_documento, serie_documento,
+            [now, now, date, `${id_venta}-${codigo_tipo_documento}-${serie_documento}`, codigo_tipo_documento, serie_documento,
                 numero, datos_del_cliente_o_receptor.numero_documento,
                 datos_del_cliente_o_receptor.apellidos_y_nombres_o_razon_social,
                 totales.total_venta, 'N', JSON.stringify(strdocument, null, 4), company, external_id]);

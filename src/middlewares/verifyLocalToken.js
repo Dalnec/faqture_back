@@ -8,16 +8,19 @@ const verifyLocalToken = async (req, res, next) => {
             return res.status(403).json({ error: 'No credentials!' });
         }
         const token = req.headers.authorization && req.headers.authorization.split(' ')[1]
+        // console.log({ token });
 
         const tenant = req.params.tenant;
-        const schema = await pool.query(`SELECT schema_name FROM information_schema.schemata WHERE schema_name = $1;`, [tenant]);        
+        const schema = await pool.query(`SELECT schema_name FROM information_schema.schemata WHERE schema_name = $1;`, [tenant]);
         if (!schema.rows.length) {
             return res.status(403).json({ error: 'Error credentials!' });
         }
+        // console.log({ tenant });
+        // console.log(schema.rows[0]);
         req.params.tenant = schema.rows[0].schema_name;
 
         // console.log(req.params.tenant);
-        const company = await pool.query('SELECT * FROM public.company WHERE tenant = $1', [req.params.tenant]);        
+        const company = await pool.query('SELECT * FROM public.company WHERE tenant = $1', [req.params.tenant]);
         if (!company.rows.length) {
             return res.status(403).json({ error: 'No company' });
         }
@@ -44,4 +47,4 @@ const verifyLocalToken = async (req, res, next) => {
     }
 }
 
-module.exports = {verifyLocalToken};
+module.exports = { verifyLocalToken };

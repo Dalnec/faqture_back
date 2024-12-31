@@ -140,6 +140,24 @@ const clearCompanyDocs = async (req, res, next) => {
     }
 };
 
+const disableAutoSendCompanies = async (req, res, next) => {
+    try {
+        const { autosend } = req.body
+        const { rows } = await pool.query('SELECT * FROM public.company');
+        for (let company of rows) {
+            // console.log(company.company_number, company.autosend);
+            await pool.query(`UPDATE public.company SET autosend = $1 WHERE id_company = $2`, [autosend || false, company.id_company]);
+        }
+        res.json({
+            state: 'success',
+            message: "Envio Automatico Companies Disabled!"
+        })
+    } catch (error) {
+        res.json({ error: error.message });
+        next();
+    }
+};
+
 
 const generateToken = async (req, res, next) => {
     try {
@@ -200,4 +218,5 @@ module.exports = {
     getCompaniesList,
     leerExcel,
     clearCompanyDocs,
+    disableAutoSendCompanies,
 };

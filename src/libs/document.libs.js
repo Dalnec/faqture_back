@@ -1,5 +1,7 @@
 const pool = require('../db')
 const { ApiClient } = require('../libs/api.libs');
+const { adaptGuiaTransportista } = require('../models/apiSunat/adaptGuiaTransportista');
+const { ApiSunat } = require('./apiApiSunat.libs');
 const { selectAllApiCompany } = require('./company.libs');
 
 const select_document_by_id = async (id, tenant) => {
@@ -234,8 +236,28 @@ const sendDoc = async (company, docu) => {
             token = branch.token
         }
     }
+    let result;
+    if (docu.type == '31') {
+        const apiSunat = new ApiSunat(`${company.external_api.apisunat.url}/personas/v1/sendBill`)
+        const format_doc = adaptGuiaTransportista(company, JSON.parse(docu.json_format))
+
+        result = await apiSunat.sendDocument(format_doc);
+
+        if (result.status === 'ERROR' || result.error) {
+            result.state = 'X';
+            if (result.message && result.message.search('Numeración repetida') > 0) {
+                result.state = 'E';
+            }
+        } else {
+            result.state = 'E';
+        }
+        const doc = await update_document(docu.id_document, company.tenant, result);
+        if (!doc) result.state = 'U';
+        return result
+    }
+
     const api = new ApiClient(`${company.url}/api/documents`, token)
-    let result = await api.sendDocument(docu.json_format)
+    result = await api.sendDocument(docu.json_format)
 
     if (!result.success) {
         result.state = 'X';

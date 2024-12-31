@@ -73,6 +73,12 @@ ADD COLUMN localtoken varying(255) constraint;
 ALTER TABLE public.user DROP COLUMN token
 ALTER TABLE public.company
 ADD COLUMN autosend BOOLEAN NOT NULL DEFAULT FALSE;
+ALTER TABLE public.company
+ADD COLUMN address varchar(200);
+ALTER TABLE public.company
+ADD COLUMN ubigeo varchar(20);
+ALTER TABLE public.company
+ADD COLUMN external_api jsonb;
 -- TASK TABLE
 CREATE TABLE public.tasks(
     id_task SERIAL,
