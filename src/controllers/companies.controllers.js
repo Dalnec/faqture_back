@@ -32,7 +32,7 @@ const getCompaniestByFilters = async (req, res, next) => {
         filters = setFiltersORCompany(company)
 
         const response = await pool.query(`SELECT id_company, created::text, company_number, company, tenant, 
-            url, token, localtoken, state, autosend, zenda_url, zenda_token, zenda_state, token_series 
+            url, token, localtoken, state, autosend, zenda_url, zenda_token, zenda_state, token_series, external_api 
             FROM public.company ${filters} ORDER BY id_company 
         LIMIT ${itemsPerPage} OFFSET ${(page - 1) * itemsPerPage}`);
 
@@ -62,7 +62,8 @@ const getCompanyId = async (req, res, next) => {
 
 const createCompany = async (req, res, next) => {
     try {
-        const { company_number, company, url, token, tenant, autosend, zenda_url, zenda_token, zenda_state, token_series } = req.body
+        const { company_number, company, url, token, tenant, autosend, zenda_url, zenda_token,
+            zenda_state, token_series, external_api } = req.body
 
         // const localtoken = encrypt(tenant)
         const localtoken = await encryptPasword(tenant)
@@ -70,10 +71,10 @@ const createCompany = async (req, res, next) => {
 
         const response = await pool.query(
             `INSERT INTO company(created, modified, company_number, company, url, token, localtoken, 
-                tenant, autosend, zenda_url, zenda_token, zenda_state, token_series) 
-            VALUES ( $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)`,
+                tenant, autosend, zenda_url, zenda_token, zenda_state, token_series, external_api) 
+            VALUES ( $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)`,
             [now, now, company_number, company, url, token, localtoken, tenant, autosend, zenda_url,
-                zenda_token, zenda_state, token_series]);
+                zenda_token, zenda_state, token_series, external_api]);
 
         const createdTenant = createTenantCompany(tenant);
         if (!createdTenant) {

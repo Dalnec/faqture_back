@@ -15,6 +15,6 @@ router.post('/companies/generateToken', generateToken)
 router.get('/companies-list', getCompaniesList)
 router.post('/companies-excel', leerExcel)
 router.post('/companies/clear/:id', [verifyToken], clearCompanyDocs)
-router.put('/companies/disable-auto-send/all', disableAutoSendCompanies)
+router.post('/companies/disable-auto-send/all', disableAutoSendCompanies)
 
 module.exports = router;
