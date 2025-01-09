@@ -30,6 +30,19 @@ class ApiSunat {
             });
         return res;
     }
+
+    async getDocument() {
+        this.config.method = 'get';
+        let res;
+        await axios(this.config)
+            .then(response => {
+                res = response.data
+            })
+            .catch((error) => {
+                res = error.response.data;
+            });
+        return res;
+    }
 }
 
 module.exports = { ApiSunat };

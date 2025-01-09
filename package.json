@@ -32,7 +32,9 @@
     "pg": "^8.7.1",
     "pg-hstore": "^2.3.4",
     "qrcode": "^1.5.1",
-    "ssh2": "^1.11.0"
+    "ssh2": "^1.11.0",
+    "swagger-jsdoc": "^6.2.8",
+    "swagger-ui-express": "^5.0.1"
   },
   "devDependencies": {
     "nodemon": "^2.0.15",

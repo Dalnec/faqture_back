@@ -1,7 +1,7 @@
 const { customAlphabet } = require('nanoid')
 const pool = require('../db');
 const { setNewValues, setFiltersOR, setFiltersDocs } = require('../libs/functions')
-const { sendDoc, get_correlative_number, select_document_by_serie_number, verifyingExternalIds, getAllRejectedDocsAllCompanies, get_docs_month_filter, select_document_by_external_id } = require('../libs/document.libs');
+const { sendDoc, get_correlative_number, select_document_by_serie_number, verifyingExternalIds, getAllRejectedDocsAllCompanies, get_docs_month_filter, select_document_by_external_id, getDocGuiaTransportista } = require('../libs/document.libs');
 const { selectApiCompanyById, getCompanyByNumber, getCompanyByTenant } = require('../libs/company.libs');
 const axios = require('axios');
 const { ApiClient } = require('../libs/api.libs');
@@ -101,7 +101,7 @@ const createDocument = async (req, res, next) => {
                 totales.total_venta, 'N', JSON.stringify(strdocument, null, 4), company, external_id]
         } else {
             const { destinatario } = document
-            values = [now, now, date, id_venta, codigo_tipo_documento, serie_documento,
+            values = [now, now, date, `${id_venta}-${codigo_tipo_documento}-${serie_documento}`, codigo_tipo_documento, serie_documento,
                 numero_documento, destinatario.numero_documento,
                 destinatario.apellidos_y_nombres_o_razon_social,
                 0, 'N', JSON.stringify(strdocument, null, 4), company, external_id]
@@ -646,21 +646,50 @@ const verifyDocumentBySerieNumber = async (req, res, next) => {
     try {
         const tenant = req.params.tenant;
         const { serie, number } = req.body
-        const response = await select_document_by_serie_number(tenant, serie, number);
-        if (!response) {
+        let doc = await select_document_by_serie_number(tenant, serie, number);
+        if (!doc) {
             return res.status(404).json({
                 success: false,
-                message: "No se encontraron Documentos",
+                message: "Documento no encontrado",
             })
         }
 
+        const company = await getCompanyByTenant(tenant)
+        if (!company) {
+            return res.status(400).json({ success: false, message: 'Cliente no encontrado' })
+        }
+
+        console.log(doc.type, doc.response_send);
+        let data = {}
+        if (!doc.response_send) {
+            const result = await sendDoc(company, doc)
+            doc = await select_document_by_external_id(doc.external_id, company.tenant)
+        }
+
+        let response_send = JSON.parse(doc.response_send)
+        if (doc.type != '31') {
+            if (!response_send.success) {
+                const api = new ApiClient(`${company.url}/api/documents/lists/`, company.token)
+                const rpta = await verifyingExternalIds(company.tenant, api)
+                doc = await select_document_by_external_id(doc.external_id, company.tenant)
+            }
+            data = JSON.parse(doc.response_send)
+        } else {
+            if (company.external_api.apisunat) {
+                const rpta = await getDocGuiaTransportista(company, doc)
+                data = rpta
+            }
+        }
+
+        // TODO: Verificar si es necesario preguntar al TILSON si esta bien la respuesta
         res.status(200).json({
             success: true,
             data: {
-                cod_sale: response.cod_sale,
-                filename: JSON.parse(response.response_send).data.filename,
-                state: response.states,
-                external_id: response.external_id,
+                cod_sale: doc.cod_sale,
+                filename: JSON.parse(doc.response_send).data.filename,
+                state: doc.states,
+                external_id: doc.external_id,
+                data: data
             }
         })
     } catch (error) {

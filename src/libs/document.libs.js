@@ -33,7 +33,7 @@ const select_document_by_external_id = async (external_id, tenant) => {
 const select_document_by_serie_number = async (tenant, serie, numero) => {
     try {
         if (!tenant) { return false; }
-        const docs = await pool.query(`SELECT id_document, cod_sale, json_format, response_send, response_anulate, states, external_id FROM ${tenant}.document WHERE serie=$1 AND numero=$2`, [serie, numero]);
+        const docs = await pool.query(`SELECT id_document, cod_sale, json_format, response_send, response_anulate, states, external_id, type FROM ${tenant}.document WHERE serie=$1 AND numero=$2`, [serie, numero]);
         if (!docs.rowCount) { return false; }
         return docs.rows[0];
 
@@ -250,7 +250,15 @@ const sendDoc = async (company, docu) => {
             }
         } else {
             result.state = 'E';
+            result.data = { filename: format_doc.fileName };
+            result.links = {
+                xml: "",
+                pdf: `${company.external_api.apisunat.url}/documents/${result.documentId}/getPDF/A4/${format_doc.fileName}.pdf`,
+                cdr: ""
+            }
         }
+
+        result.external_id = docu.external_id
         const doc = await update_document(docu.id_document, company.tenant, result);
         if (!doc) result.state = 'U';
         return result
@@ -280,6 +288,13 @@ const sendDoc = async (company, docu) => {
         result.state = 'U'; // updating error
 
     return result;
+}
+
+const getDocGuiaTransportista = async (company, docu) => {
+    data = JSON.parse(docu.response_send)
+    const apiSunat = new ApiSunat(`${company.external_api.apisunat.url}/documents/${data.documentId}/getById`)
+    result = await apiSunat.getDocument();
+    return result
 }
 
 const sendAllDocsPerCompany = async (company, api, docus) => {
@@ -578,4 +593,5 @@ module.exports = {
     get_correlative_number,
     getAllRejectedDocsAllCompanies,
     get_docs_month_filter,
+    getDocGuiaTransportista,
 };

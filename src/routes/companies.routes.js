@@ -6,6 +6,33 @@ const { getCompanyId, getCompaniestByFilters, createCompany,
     updateCompany, deleteCompany, generateToken, getCompaniesList,
     leerExcel, clearCompanyDocs, disableAutoSendCompanies } = require('../controllers/companies.controllers')
 
+/**
+ * @swagger
+ * /companies/{id}:
+ *   get:
+ *     summary: Obtiene información de una empresa
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: ID de la empresa
+ *     responses:
+ *       200:
+ *         description: Éxito
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 name:
+ *                   type: string
+ *                   example: "Empresa X"
+ *                 id:
+ *                   type: string
+ *                   example: "123"
+ */
 router.get('/companies/:id', getCompanyId)
 router.get('/companies', getCompaniestByFilters)
 router.post('/companies', createCompany)

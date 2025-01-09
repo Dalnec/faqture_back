@@ -21,7 +21,7 @@ export function adaptGuiaTransportista(company, data) {
             "6",
             company.company_number,
             company.company,
-            company.address
+            company.address || "-",
         ), // datos de la empresa emisora
         deliveryCustomerParty(
             data.destinatario.codigo_tipo_documento_identidad,
@@ -38,8 +38,8 @@ export function adaptGuiaTransportista(company, data) {
             data.mtc,
             data.chofer.codigo_tipo_documento_identidad,
             data.chofer.numero_documento,
-            data.chofer.nombres,
-            data.chofer.apellidos || "-",
+            data.chofer.nombre,
+            data.chofer.apellido || "-",
             data.chofer.numero_licencia,
             data.direccion_partida_remitente.ubigeo,
             data.direccion_partida_remitente.direccion,

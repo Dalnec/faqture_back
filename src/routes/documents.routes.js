@@ -22,6 +22,42 @@ router.post('/documents/clear/:tenant', [verifyToken], clearDocuments)
 router.put('/documents/nota-credito-format/:tenant/:id', externalIdFormatNotaCredito)
 router.get('/documents/rejected', getRejected)
 router.post('/documents/update/:tenant/json', updateJsonFormat)
+/**
+ * @swagger
+ * /documents/{tenant}/verify:
+ *   post:
+ *     summary: Consulta externa de un documento
+ *     security:
+ *       - BearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: tenant
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: Tenant de la empresa
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               serie:
+ *                 type: string
+ *                 example: "B001"
+ *               number:
+ *                 type: string
+ *                 example: "100"
+ *     responses:
+ *       200:
+ *         description: Documento verificado exitosamente
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ */
+
 router.post('/documents/:tenant/verify', verifyLocalToken, verifyDocumentBySerieNumber)
 // Pinche Zendita
 router.get('/api/documents/:tenant', verifyLocalToken, getDocumentByFilters)
