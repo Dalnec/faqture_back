@@ -1,4 +1,4 @@
-export class GuiaTransportista {
+class GuiaTransportista {
     constructor(personaId, personaToken, fileName, documentBody) {
         this.personaId = personaId;
         this.personaToken = personaToken;
@@ -7,7 +7,7 @@ export class GuiaTransportista {
     }
 }
 
-export class DocumentBody {
+class DocumentBody {
     constructor(UBLVersionID, CustomizationID, ID, IssueDate, IssueTime, DespatchAdviceTypeCode, Note, DespatchSupplierParty, DeliveryCustomerParty, Shipment, DespatchLine) {
         this["cbc:UBLVersionID"] = UBLVersionID;
         this["cbc:CustomizationID"] = CustomizationID;
@@ -23,19 +23,19 @@ export class DocumentBody {
     }
 }
 
-export class CbcCustomizationIDClass {
+class CbcCustomizationIDClass {
     constructor(text) {
         this._text = text;
     }
 }
 
-export class TextValue {
+class TextValue {
     constructor(text) {
         this._text = text;
     }
 }
 // DespatchSupplierParty
-export function despatchSupplierParty(
+function despatchSupplierParty(
     codigo_tipo_documento_identidad,
     numero_documento,
     apellidos_y_nombres_o_razon_social,
@@ -113,7 +113,7 @@ export function despatchSupplierParty(
 }
 
 // DeliveryCustomerParty
-export function deliveryCustomerParty(
+function deliveryCustomerParty(
     codigo_tipo_documento_identidad,
     numero_documento,
     apellidos_y_nombres_o_razon_social
@@ -172,7 +172,7 @@ export function deliveryCustomerParty(
 }
 
 // Shipment
-export function shipment(
+function shipment(
     SUNAT_Envio,
     unidad_peso_total,
     peso_total,
@@ -378,7 +378,7 @@ export function shipment(
 }
 
 // Delivery
-export function despatchLine(index, codigo_interno, cantidad, descripcion) {
+function despatchLine(index, codigo_interno, cantidad, descripcion) {
     class CacDespatchLine {
         constructor(ID, DeliveredQuantity, OrderLineReference, Item) {
             this["cbc:ID"] = ID;
@@ -427,3 +427,14 @@ export function despatchLine(index, codigo_interno, cantidad, descripcion) {
         new CacItem(new TextValue(descripcion))
     )
 }
+
+module.exports = {
+    GuiaTransportista,
+    DocumentBody,
+    despatchSupplierParty,
+    shipment,
+    despatchLine,
+    deliveryCustomerParty,
+    TextValue,
+    CbcCustomizationIDClass
+};

@@ -1,7 +1,8 @@
-import {
-    GuiaTransportista, DocumentBody, despatchSupplierParty, shipment, despatchLine,
+import { createRequire } from 'module';
+const require = createRequire(import.meta.url);
+const { GuiaTransportista, DocumentBody, despatchSupplierParty, shipment, despatchLine,
     deliveryCustomerParty, TextValue, CbcCustomizationIDClass
-} from './guiaTransportistaClass.js';
+} = require('./guiaTransportistaClass.js');
 
 function completarConCeros(valor, longitud) {
     return valor.toString().padStart(longitud, '0');
