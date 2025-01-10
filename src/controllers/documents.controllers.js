@@ -9,7 +9,6 @@ const { listReportDocuments } = require('../libs/connection');
 const fs = require('fs');
 const path = require('path');
 const { ApiZenda } = require('../libs/apiZenda.libs');
-const { adaptGuiaTransportista } = require('../models/apiSunat/adaptGuiaTransportista');
 const nanoid = customAlphabet('1234567890abcdef', 20)
 
 const getDocuments = async (req, res, next) => {
