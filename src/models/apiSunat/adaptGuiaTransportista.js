@@ -1,5 +1,6 @@
-import { createRequire } from 'module';
-const require = createRequire(import.meta.url);
+// const { createRequire } = require('module');
+// const require = createRequire(import.meta.url);
+
 const { GuiaTransportista, DocumentBody, despatchSupplierParty, shipment, despatchLine,
     deliveryCustomerParty, TextValue, CbcCustomizationIDClass
 } = require('./guiaTransportistaClass.js');
@@ -8,7 +9,7 @@ function completarConCeros(valor, longitud) {
     return valor.toString().padStart(longitud, '0');
 }
 
-export function adaptGuiaTransportista(company, data) {
+function adaptGuiaTransportista(company, data) {
     const { apisunat } = company.external_api
     const documentBody = new DocumentBody(
         new TextValue("2.1"),
@@ -59,3 +60,7 @@ export function adaptGuiaTransportista(company, data) {
         documentBody
     );
 }
+
+module.exports = {
+    adaptGuiaTransportista
+};
