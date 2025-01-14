@@ -94,13 +94,13 @@ const createDocument = async (req, res, next) => {
 
         if (codigo_tipo_documento !== '31') {
             const { datos_del_cliente_o_receptor, totales } = document
-            values = [now, now, date, `${id_venta}-${codigo_tipo_documento}-${serie_documento}`, codigo_tipo_documento, serie_documento,
+            values = [now, now, date, id_venta, codigo_tipo_documento, serie_documento,
                 numero_documento, datos_del_cliente_o_receptor.numero_documento,
                 datos_del_cliente_o_receptor.apellidos_y_nombres_o_razon_social,
                 totales.total_venta, 'N', JSON.stringify(strdocument, null, 4), company, external_id]
         } else {
             const { destinatario } = document
-            values = [now, now, date, `${id_venta}-${codigo_tipo_documento}-${serie_documento}`, codigo_tipo_documento, serie_documento,
+            values = [now, now, date, id_venta, codigo_tipo_documento, serie_documento,
                 numero_documento, destinatario.numero_documento,
                 destinatario.apellidos_y_nombres_o_razon_social,
                 0, 'N', JSON.stringify(strdocument, null, 4), company, external_id]
@@ -161,7 +161,7 @@ const createApiDocument = async (req, res, next) => {
             `INSERT INTO ${tenant}.document(created, modified, date, cod_sale, type, serie, numero, 
                 customer_number, customer, amount, states, json_format, id_company, external_id) 
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14 ) RETURNING *`,
-            [now, now, date, `${id_venta}-${codigo_tipo_documento}-${serie_documento}`, codigo_tipo_documento, serie_documento,
+            [now, now, date, id_venta, codigo_tipo_documento, serie_documento,
                 numero, datos_del_cliente_o_receptor.numero_documento,
                 datos_del_cliente_o_receptor.apellidos_y_nombres_o_razon_social,
                 totales.total_venta, 'N', JSON.stringify(strdocument, null, 4), company, external_id]);
@@ -203,7 +203,7 @@ const updateApiDocument = async (req, res, next) => {
         let code = 200;
         // verify actual state
         console.log({ id, tenant });
-
+        // const cod_sale = 
         const doc = await pool.query(`SELECT * FROM ${tenant}.document WHERE cod_sale='$1' OR external_id='$1'`, [id]);
         if (doc.rowCount <= 0) {
             return res.status(401).json({
