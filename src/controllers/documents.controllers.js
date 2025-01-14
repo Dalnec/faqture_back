@@ -204,7 +204,7 @@ const updateApiDocument = async (req, res, next) => {
         // verify actual state
         console.log({ id, tenant });
         // const cod_sale = 
-        const doc = await pool.query(`SELECT * FROM ${tenant}.document WHERE cod_sale='$1' OR external_id='$1'`, [id]);
+        const doc = await pool.query(`SELECT * FROM ${tenant}.document WHERE cod_sale=$1 OR external_id=$1`, [id]);
         if (doc.rowCount <= 0) {
             return res.status(401).json({
                 success: false,
