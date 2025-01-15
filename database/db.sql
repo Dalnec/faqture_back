@@ -145,4 +145,22 @@ ALTER TABLE document
 ADD COLUMN IF NOT EXISTS verified BOOLEAN;
 end loop;
 end;
+$$ -- update columna cod_sale
+do $$
+declare f record;
+begin for f in
+SELECT nspname
+FROM pg_namespace n
+WHERE nspname !~~ 'pg_%'
+    AND nspname <> 'information_schema'
+    AND nspname <> 'public' loop raise notice '%',
+    f.nspname;
+EXECUTE 'SET LOCAL search_path = ' || f.nspname;
+UPDATE document
+SET cod_sale = SUBSTRING(
+        cod_sale
+        FROM '^[^-]+'
+    );
+end loop;
+end;
 $$

@@ -20,6 +20,7 @@ const app = express();
 
 // Configuración
 const PORT = process.env.PORT || 4000;
+const URLDOCS = process.env.URLDOCS || `http://localhost:${PORT}`;
 
 // Middlewares
 app.use(cors());
@@ -39,7 +40,7 @@ const swaggerOptions = {
         },
         servers: [
             {
-                url: `http://localhost:${PORT}`,
+                url: URLDOCS,
             },
         ],
         components: {
