@@ -1,7 +1,7 @@
 const setFilters = (filters) => {
     // if (!filters || typeof filters !== 'object') 
     //     return 'Parameter \'filters\' must be an object.'
-    
+
     let cadena = 'WHERE '
     for (let x in filters) {
         cadena += `${x} = '${filters[x]}' AND `;
@@ -11,7 +11,7 @@ const setFilters = (filters) => {
 
 const setFiltersORCompany = (filters) => {
     let cadena = 'WHERE '
-    if (filters){
+    if (filters) {
         cadena += `company_number ILIKE '%${filters}%' OR `;
         cadena += `company ILIKE '%${filters}%' OR `;
     }
@@ -21,7 +21,7 @@ const setFiltersORCompany = (filters) => {
 const setFiltersOR = (filters) => {
     let cadena = 'WHERE '
     for (let x in filters) {
-        if (filters[x]){
+        if (filters[x]) {
             cadena += `${x} ILIKE '%${filters[x]}%' OR `;
         }
     }
@@ -37,25 +37,27 @@ const setNewValues = (values) => {
 }
 
 
-const setFiltersDocs = (filters) => {    
+const setFiltersDocs = (filters) => {
     let cadena = 'WHERE '
     for (let x in filters) {
-        switch (x) {
-            case 'date_from':
-                cadena += `date >= '${filters[x]} 00:00:00' AND `;                
-                break;        
-            case 'date_to':
-                cadena += `date <= '${filters[x]} 23:59:59' AND `;                
-                break;        
-            case 'date':
-                cadena += `date BETWEEN '${filters[x]} 00:00:00' AND '${filters[x]} 23:59:59' AND `;                
-                break;        
-            default:
-                cadena += `${x} = '${filters[x]}' AND `;
-                break;
+        if (filters[x]) {
+            switch (x) {
+                case 'date_from':
+                    cadena += `date >= '${filters[x]} 00:00:00' AND `;
+                    break;
+                case 'date_to':
+                    cadena += `date <= '${filters[x]} 23:59:59' AND `;
+                    break;
+                case 'date':
+                    cadena += `date BETWEEN '${filters[x]} 00:00:00' AND '${filters[x]} 23:59:59' AND `;
+                    break;
+                default:
+                    cadena += `${x} = '${filters[x]}' AND `;
+                    break;
+            }
         }
     }
     return cadena.substring(0, cadena.lastIndexOf("AND "));
 }
 
-module.exports = {setFilters, setNewValues, setFiltersORCompany, setFiltersOR, setFiltersDocs};
+module.exports = { setFilters, setNewValues, setFiltersORCompany, setFiltersOR, setFiltersDocs };
