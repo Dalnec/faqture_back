@@ -14,6 +14,7 @@ const setFiltersORCompany = (filters) => {
     if (filters) {
         cadena += `company_number ILIKE '%${filters}%' OR `;
         cadena += `company ILIKE '%${filters}%' OR `;
+        cadena += `tenant ILIKE '%${filters}%' OR `;
     }
     return cadena.substring(0, cadena.lastIndexOf("OR"));
 }
