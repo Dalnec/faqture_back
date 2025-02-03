@@ -95,9 +95,19 @@ const createCompany = async (req, res, next) => {
 const updateCompany = async (req, res, next) => {
     try {
         const id = parseInt(req.params.id);
-        const newData = setNewValues(req.body)
+        const keys = Object.keys(req.body);
+        const values = Object.values(req.body);
+        // Construir la parte del SET dinámicamente
+        const setClause = keys.map((key, index) => `${key} = $${index + 1}`).join(", ");
+        // Agregar id al final de los valores
+        values.push(id);
+        // Construir la consulta
+        const query = `UPDATE public.company SET ${setClause} WHERE id_company = $${values.length}`;
+        // Ejecutar la consulta con los parámetros correctos
+        const response = await pool.query(query, values);
 
-        const response = await pool.query(`UPDATE public.company SET ${newData} WHERE id_company = $1`, [id]);
+        // const newData = setNewValues(req.body)
+        // const response = await pool.query(`UPDATE public.company SET ${newData} WHERE id_company = $1`, [id]);
 
         res.json({
             state: 'success',
