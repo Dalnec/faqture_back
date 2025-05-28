@@ -8,18 +8,25 @@ const { createTenantCompany } = require('./tenant.controllers')
 const getCompaniesList = async (req, res, next) => {
     const response = await pool.query('SELECT id_company, company_number, company, tenant FROM company');
     const list = await Promise.all(
+        // response.rows.map(async (data) => {
+        //     let counting = await pool.query(`SELECT count(states) FILTER (WHERE states = ANY ('{N, S, M}')) AS new
+        //                                         , count(states) FILTER (WHERE states = 'P') AS void
+        //                                         , count(states) FILTER (WHERE states = 'X') AS error
+        //                                         , count(states) FILTER (WHERE states = 'C') AS void_consult
+        //                                         , count(states) FILTER (WHERE states = 'Z') AS num_void_error
+        //                                 FROM ${data.tenant}.document;`);
+        //     data.num_new = counting.rows[0].new
+        //     data.num_void = counting.rows[0].void
+        //     data.num_error = counting.rows[0].error
+        //     data.num_void_consult = counting.rows[0].void_consult
+        //     data.num_void_error = counting.rows[0].num_void_error
+        //     return data
         response.rows.map(async (data) => {
-            let counting = await pool.query(`SELECT count(states) FILTER (WHERE states = ANY ('{N, S, M}')) AS new
-                                                , count(states) FILTER (WHERE states = 'P') AS void
-                                                , count(states) FILTER (WHERE states = 'X') AS error
-                                                , count(states) FILTER (WHERE states = 'C') AS void_consult
-                                                , count(states) FILTER (WHERE states = 'Z') AS num_void_error
-                                        FROM ${data.tenant}.document;`);
-            data.num_new = counting.rows[0].new
-            data.num_void = counting.rows[0].void
-            data.num_error = counting.rows[0].error
-            data.num_void_consult = counting.rows[0].void_consult
-            data.num_void_error = counting.rows[0].num_void_error
+            data.num_new = 0
+            data.num_void = 0
+            data.num_error = 0
+            data.num_void_consult = 0
+            data.num_void_error = 0
             return data
         }))
     res.status(200).json(list)
