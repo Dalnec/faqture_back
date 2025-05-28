@@ -5,32 +5,63 @@ const pool = require('../db')
 const { encryptPasword } = require('../libs/auth')
 const { createTenantCompany } = require('./tenant.controllers')
 
+// const getCompaniesList = async (req, res, next) => {
+//     const response = await pool.query('SELECT id_company, company_number, company, tenant FROM company');
+//     const list = await Promise.all(
+//         response.rows.map(async (data) => {
+//             let counting = await pool.query(`SELECT count(states) FILTER (WHERE states = ANY ('{N, S, M}')) AS new
+//                                                 , count(states) FILTER (WHERE states = 'P') AS void
+//                                                 , count(states) FILTER (WHERE states = 'X') AS error
+//                                                 , count(states) FILTER (WHERE states = 'C') AS void_consult
+//                                                 , count(states) FILTER (WHERE states = 'Z') AS num_void_error
+//                                         FROM ${data.tenant}.document;`);
+//             data.num_new = counting.rows[0].new
+//             data.num_void = counting.rows[0].void
+//             data.num_error = counting.rows[0].error
+//             data.num_void_consult = counting.rows[0].void_consult
+//             data.num_void_error = counting.rows[0].num_void_error
+//             return data
+//         }))
+//     res.status(200).json(list)
+// }
 const getCompaniesList = async (req, res, next) => {
-    const response = await pool.query('SELECT id_company, company_number, company, tenant FROM company');
-    const list = await Promise.all(
-        // response.rows.map(async (data) => {
-        //     let counting = await pool.query(`SELECT count(states) FILTER (WHERE states = ANY ('{N, S, M}')) AS new
-        //                                         , count(states) FILTER (WHERE states = 'P') AS void
-        //                                         , count(states) FILTER (WHERE states = 'X') AS error
-        //                                         , count(states) FILTER (WHERE states = 'C') AS void_consult
-        //                                         , count(states) FILTER (WHERE states = 'Z') AS num_void_error
-        //                                 FROM ${data.tenant}.document;`);
-        //     data.num_new = counting.rows[0].new
-        //     data.num_void = counting.rows[0].void
-        //     data.num_error = counting.rows[0].error
-        //     data.num_void_consult = counting.rows[0].void_consult
-        //     data.num_void_error = counting.rows[0].num_void_error
-        //     return data
-        response.rows.map(async (data) => {
-            data.num_new = 0
-            data.num_void = 0
-            data.num_error = 0
-            data.num_void_consult = 0
-            data.num_void_error = 0
-            return data
-        }))
-    res.status(200).json(list)
-}
+    try {
+        const response = await pool.query('SELECT id_company, company_number, company, tenant FROM company');
+
+        // Ejecutar todas las consultas en paralelo
+        const list = await Promise.all(
+            response.rows.map(async (data) => {
+                // Validación opcional (solo letras, números y guiones bajos)
+                if (!/^[a-zA-Z0-9_]+$/.test(data.tenant)) {
+                    throw new Error(`Invalid schema name: ${data.tenant}`);
+                }
+
+                const statsQuery = `
+                SELECT 
+                    COUNT(states) FILTER (WHERE states = ANY ('{N,S,M}')) AS num_new,
+                    COUNT(states) FILTER (WHERE states = 'P') AS num_void,
+                    COUNT(states) FILTER (WHERE states = 'X') AS num_error,
+                    COUNT(states) FILTER (WHERE states = 'C') AS num_void_consult,
+                    COUNT(states) FILTER (WHERE states = 'Z') AS num_void_error
+                FROM ${data.tenant}.document
+                `;
+
+                const { rows } = await pool.query(statsQuery);
+                return {
+                    ...data,
+                    ...rows[0]
+                };
+            })
+        );
+
+        res.status(200).json(list);
+    } catch (error) {
+        console.error('Error in getCompaniesList:', error);
+        res.status(500).json({ error: error.message });
+    }
+};
+
+
 
 const getCompaniestByFilters = async (req, res, next) => {
     try {
