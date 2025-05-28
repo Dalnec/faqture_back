@@ -3,8 +3,8 @@ const { ApiClient } = require('../libs/api.libs');
 const { adaptGuiaTransportista } = require('../models/apiSunat/adaptGuiaTransportista');
 const { ApiSunat } = require('./apiApiSunat.libs');
 const { selectAllApiCompany } = require('./company.libs');
-const limit = require('p-limit');
-const limiter = limit(10);
+// const limit = require('p-limit');
+// const limiter = limit(10);
 
 const select_document_by_id = async (id, tenant) => {
     try {
@@ -488,8 +488,7 @@ const getAllRejectedDocsAllCompanies = async () => {
         }
 
         const results = await Promise.allSettled(
-            // schemas.map(async (schema) => {
-            schemas.map(schema => limiter(async () => {
+            schemas.map(async (schema) => {
                 // Validar el nombre del schema por seguridad
                 if (!/^[a-zA-Z0-9_]+$/.test(schema.tenant)) {
                     throw new Error(`Invalid schema name: ${schema.tenant}`);
@@ -505,7 +504,7 @@ const getAllRejectedDocsAllCompanies = async () => {
 
                 const { rows } = await pool.query(query);
                 return { ...schema, rows };
-            }))
+            })
         );
 
         // Filtrar solo las respuestas exitosas con resultados
