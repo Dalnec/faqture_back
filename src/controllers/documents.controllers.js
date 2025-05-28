@@ -48,11 +48,11 @@ const getDocumentByFilters = async (req, res, next) => {
         customer_number, customer, amount, states, json_format, response_send, response_anulate, id_company, external_id FROM ${tenant}.document ${filters} ORDER BY id_document DESC
         LIMIT ${itemsPerPage} OFFSET ${(page - 1) * itemsPerPage}`);
 
-        const tocount = await pool.query(`SELECT * FROM ${tenant}.document ${filters}`)
+        // const tocount = await pool.query(`SELECT * FROM ${tenant}.document ${filters}`)
 
         res.json({
             page: page,
-            count: tocount.rows.length,
+            count: 0,//tocount.rows.length,
             data: response.rows
         });
     } catch (error) {
