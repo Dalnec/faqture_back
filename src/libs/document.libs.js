@@ -3,6 +3,8 @@ const { ApiClient } = require('../libs/api.libs');
 const { adaptGuiaTransportista } = require('../models/apiSunat/adaptGuiaTransportista');
 const { ApiSunat } = require('./apiApiSunat.libs');
 const { selectAllApiCompany } = require('./company.libs');
+const limit = require('p-limit');
+const limiter = limit(10);
 
 const select_document_by_id = async (id, tenant) => {
     try {
@@ -462,20 +464,61 @@ const sendAllAnulateDocsAllCompanies = async () => {
     }
 };
 
-const getAllRejectedDocsAllCompanies = async () => {
+// const getAllRejectedDocsAllCompanies = async () => {
 
-    const schemas = await selectAllApiCompany()
-    const queries = schemas.map(async schema => {
-        const { rows } = await pool.query(`SELECT id_document, TO_CHAR(date::DATE, 'yyyy-mm-dd') AS date, cod_sale, type, serie, numero, 
-        customer_number, customer, amount, states, json_format, response_send, response_anulate, id_company, external_id FROM ${schema.tenant}.document WHERE verified IS NOT TRUE AND  states = 'R';`)
-        return {
-            ...schema,
-            rows
+//     const schemas = await selectAllApiCompany()
+//     const queries = schemas.map(async schema => {
+//         const { rows } = await pool.query(`SELECT id_document, TO_CHAR(date::DATE, 'yyyy-mm-dd') AS date, cod_sale, type, serie, numero, 
+//         customer_number, customer, amount, states, json_format, response_send, response_anulate, id_company, external_id FROM ${schema.tenant}.document WHERE verified IS NOT TRUE AND  states = 'R';`)
+//         return {
+//             ...schema,
+//             rows
+//         }
+//     });
+//     return await Promise.all(queries)
+//         .then(values => values.filter(v => v.rows.length > 0))
+//     // .then(values => values.map(v => ({ count: v.rows.length, ...v })));
+// };
+const getAllRejectedDocsAllCompanies = async () => {
+    try {
+        const schemas = await selectAllApiCompany();
+
+        if (!schemas || schemas.length === 0) {
+            return [];
         }
-    });
-    return await Promise.all(queries)
-        .then(values => values.filter(v => v.rows.length > 0))
-    // .then(values => values.map(v => ({ count: v.rows.length, ...v })));
+
+        const results = await Promise.allSettled(
+            // schemas.map(async (schema) => {
+            schemas.map(schema => limiter(async () => {
+                // Validar el nombre del schema por seguridad
+                if (!/^[a-zA-Z0-9_]+$/.test(schema.tenant)) {
+                    throw new Error(`Invalid schema name: ${schema.tenant}`);
+                }
+
+                const query = `
+                SELECT id_document, TO_CHAR(date::DATE, 'yyyy-mm-dd') AS date, cod_sale, type, serie, numero, 
+                        customer_number, customer, amount, states, json_format, response_send, response_anulate, 
+                        id_company, external_id
+                FROM ${schema.tenant}.document 
+                WHERE verified IS NOT TRUE AND states = 'R'
+                `;
+
+                const { rows } = await pool.query(query);
+                return { ...schema, rows };
+            }))
+        );
+
+        // Filtrar solo las respuestas exitosas con resultados
+        const filtered = results
+            .filter(r => r.status === 'fulfilled' && r.value.rows.length > 0)
+            .map(r => r.value);
+
+        return filtered;
+
+    } catch (error) {
+        console.error('Error en getAllRejectedDocsAllCompanies:', error);
+        return [];
+    }
 };
 
 const verifyingExternalIds = async (tenant, api) => {
