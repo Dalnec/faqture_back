@@ -3,13 +3,19 @@ const pool = require('../db');
 const { setNewValues, setFiltersOR, setFiltersDocs } = require('../libs/functions')
 const { sendDoc, get_correlative_number, select_document_by_serie_number, verifyingExternalIds, getAllRejectedDocsAllCompanies, get_docs_month_filter, select_document_by_external_id, getDocGuiaTransportista } = require('../libs/document.libs');
 const { selectApiCompanyById, getCompanyByNumber, getCompanyByTenant } = require('../libs/company.libs');
-const axios = require('axios');
 const { ApiClient } = require('../libs/api.libs');
 const { listReportDocuments } = require('../libs/connection');
-const fs = require('fs');
-const path = require('path');
 const { ApiZenda } = require('../libs/apiZenda.libs');
 const nanoid = customAlphabet('1234567890abcdef', 20)
+
+const fs = require('fs');
+const path = require('path');
+const axios = require('axios');
+const { promisify } = require('util');
+const { pipeline } = require('stream');
+
+const streamPipeline = promisify(pipeline);
+
 
 const getDocuments = async (req, res, next) => {
     const tenant = req.params.tenant;
@@ -428,6 +434,72 @@ const getXMLByTenant = async (req, res, next) => {
     }
 }
 
+const getXMLByTenant2 = async (req, res) => {
+    const { tenant, external_id } = req.params;
+
+    if (!external_id) {
+        return res.status(400).json({ success: false, message: 'External ID no encontrado' });
+    }
+
+    try {
+        const company = await getCompanyByTenant(tenant);
+        if (!company) {
+            return res.status(400).json({ success: false, message: 'Cliente no encontrado' });
+        }
+
+        let doc = await select_document_by_external_id(external_id, company.tenant);
+        if (!doc) {
+            return res.status(404).json({ success: false, message: 'Documento no encontrado' });
+        }
+
+        let xmlUrl, filename;
+
+        if (doc.response_send) {
+            const response_send = JSON.parse(doc.response_send);
+
+            if (!response_send.success) {
+                const api = new ApiClient(`${company.url}/api/documents/lists/`, company.token);
+                await verifyingExternalIds(company.tenant, api);
+                doc = await select_document_by_external_id(external_id, company.tenant);
+            }
+
+            filename = response_send.data?.filename;
+            xmlUrl = response_send.links?.xml;
+        } else {
+            const result = await sendDoc(company, doc);
+            filename = result.response_send?.data?.data?.filename;
+            xmlUrl = result.response_send?.data?.links;
+        }
+
+        if (!xmlUrl || !filename) {
+            return res.status(500).json({ success: false, message: 'No se pudo obtener el archivo XML.' });
+        }
+
+        const localFilePath = path.join(__dirname, `../../uploads/${filename}.xml`);
+
+        const response = await axios.get(xmlUrl, { responseType: 'stream' });
+
+        await streamPipeline(response.data, fs.createWriteStream(localFilePath));
+
+        res.download(localFilePath, `${filename}.xml`, (err) => {
+            fs.unlink(localFilePath, () => { }); // Limpieza del archivo sin bloquear la respuesta
+
+            if (err) {
+                console.error('Error al enviar el archivo:', err);
+                if (!res.headersSent) {
+                    return res.status(500).json({ success: false, message: 'Error al descargar el archivo.' });
+                }
+            }
+        });
+
+    } catch (error) {
+        console.error('Error en getXMLByTenant:', error);
+        if (!res.headersSent) {
+            return res.status(500).json({ success: false, message: 'Error interno del servidor.' });
+        }
+    }
+};
+
 const externalIdFormatNotaCredito = async (req, res, next) => {
     try {
         const { serie_documento, numero_documento, codigo_tipo_documento } = req.body.documento_afectado;
@@ -721,4 +793,5 @@ module.exports = {
     verifyDocumentBySerieNumber,
     reportConcar,
     reportContaSisCorp,
+    getXMLByTenant2
 };
