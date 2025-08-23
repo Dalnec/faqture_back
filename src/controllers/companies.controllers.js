@@ -126,7 +126,6 @@ const createCompany = async (req, res, next) => {
 
     } catch (error) {
         res.json({ error: error.message });
-        next();
     }
 };
 

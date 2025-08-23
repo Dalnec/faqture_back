@@ -163,4 +163,8 @@ SET cod_sale = SUBSTRING(
     );
 end loop;
 end;
-$$
+$$ -- Select all companies with zenda_token
+SELECT zenda_url,
+    zenda_token
+FROM public.company
+WHERE zenda_token IS NOT NULL;
