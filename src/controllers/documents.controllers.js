@@ -800,6 +800,9 @@ const verifyDispatchesStatusTicket = async (req, res, next) => {
             case 'E':
                 response = await processDispatchStateE(company, doc);
                 break;
+            case 'W':
+                response = JSON.parse(doc.response_send);
+                break;
             default:
                 return res.status(400).json({ success: false, message: "Estado no válido" });
         }
