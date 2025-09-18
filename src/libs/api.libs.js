@@ -21,7 +21,7 @@ class ApiClient {
 
     async sendDocument(data) {
         this.config.data = data;
-        this.config.timeout = 5000; // 5 seconds timeout
+        this.config.timeout = 10000; // 10 seconds timeout
         let res;
 
         await axios(this.config)
