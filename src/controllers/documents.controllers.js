@@ -1,7 +1,10 @@
 const { customAlphabet } = require('nanoid')
 const pool = require('../db');
 const { setNewValues, setFiltersOR, setFiltersDocs } = require('../libs/functions')
-const { sendDoc, get_correlative_number, select_document_by_serie_number, verifyingExternalIds, getAllRejectedDocsAllCompanies, get_docs_month_filter, select_document_by_external_id, getDocGuiaTransportista } = require('../libs/document.libs');
+const { sendDoc, get_correlative_number, select_document_by_serie_number, verifyingExternalIds,
+    getAllRejectedDocsAllCompanies, get_docs_month_filter, select_document_by_external_id,
+    getDocGuiaTransportista, checkDispatchStatusTicket, sendDispatch, processDispatchStateN,
+    processDispatchStateY, processDispatchStateE } = require('../libs/document.libs');
 const { selectApiCompanyById, getCompanyByNumber, getCompanyByTenant } = require('../libs/company.libs');
 const { ApiClient } = require('../libs/api.libs');
 const { listReportDocuments } = require('../libs/connection');
@@ -100,10 +103,11 @@ const createDocument = async (req, res, next) => {
 
         if (codigo_tipo_documento !== '31') {
             const { datos_del_cliente_o_receptor, totales } = document
+            const total_venta = totales ? totales.total_venta : 0
             values = [now, now, date, id_venta, codigo_tipo_documento, serie_documento,
                 numero_documento, datos_del_cliente_o_receptor.numero_documento,
                 datos_del_cliente_o_receptor.apellidos_y_nombres_o_razon_social,
-                totales.total_venta, 'N', JSON.stringify(strdocument, null, 4), company, external_id]
+                total_venta, 'N', JSON.stringify(strdocument, null, 4), company, external_id]
         } else {
             const { destinatario } = document
             values = [now, now, date, id_venta, codigo_tipo_documento, serie_documento,
@@ -771,6 +775,47 @@ const verifyDocumentBySerieNumber = async (req, res, next) => {
     }
 };
 
+const verifyDispatchesStatusTicket = async (req, res, next) => {
+    try {
+        const tenant = req.params.tenant;
+        const { serie, number } = req.body
+        let doc = await select_document_by_serie_number(tenant, serie, number);
+        if (!doc) {
+            return res.status(404).json({ success: false, message: "Documento no encontrado", })
+        }
+
+        const company = await getCompanyByTenant(tenant)
+        if (!company) {
+            return res.status(400).json({ success: false, message: 'Cliente no encontrado' })
+        }
+
+        let response;
+        switch (doc.states) {
+            case 'N':
+                response = await processDispatchStateN(company, doc);
+                break;
+            case 'Y':
+                response = await processDispatchStateY(company, doc);
+                break;
+            case 'E':
+                response = await processDispatchStateE(company, doc);
+                break;
+            default:
+                return res.status(400).json({ success: false, message: "Estado no válido" });
+        }
+        if (!response?.success) {
+            return res.status(400).json({ success: false, ...response });
+        }
+        return res.status(200).json({ success: true, ...response })
+        // return res.status(200).json({ success: true, data: {} })
+    } catch (error) {
+        res.status(401).json({
+            success: false,
+            message: error.message
+        })
+    }
+};
+
 module.exports = {
     getDocuments,
     createDocument,
@@ -793,5 +838,6 @@ module.exports = {
     verifyDocumentBySerieNumber,
     reportConcar,
     reportContaSisCorp,
-    getXMLByTenant2
+    getXMLByTenant2,
+    verifyDispatchesStatusTicket
 };

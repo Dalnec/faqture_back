@@ -7,7 +7,8 @@ const router = Router();
 const { getDocuments, getDocumentById, createDocument, updateDocument, deleteDocument, getDocumentByFilters,
     getDocumentCustomers, getDocumentByFiltersReport, updateApiDocument, clearDocuments, createApiDocument,
     externalIdFormatNotaCredito, getXML, getXMLByTenant, getXMLByTenant2, reportDocuments, getRejected, reports,
-    updateJsonFormat, verifyDocumentBySerieNumber, reportConcar, reportContaSisCorp } = require('../controllers/documents.controllers');
+    updateJsonFormat, verifyDocumentBySerieNumber, reportConcar, reportContaSisCorp,
+    verifyDispatchesStatusTicket } = require('../controllers/documents.controllers');
 const { verifyCompanyByTenant } = require('../middlewares/company.middleware');
 
 // router.get('/documents/:tenant', [verifyToken], getDocuments)
@@ -22,6 +23,7 @@ router.post('/documents/clear/:tenant', [verifyToken], clearDocuments)
 router.put('/documents/nota-credito-format/:tenant/:id', externalIdFormatNotaCredito)
 router.get('/documents/rejected', getRejected)
 router.post('/documents/update/:tenant/json', updateJsonFormat)
+router.post('/documents/:tenant/dispatch/status-ticket', verifyDispatchesStatusTicket)
 /**
  * @swagger
  * /documents/{tenant}/verify:

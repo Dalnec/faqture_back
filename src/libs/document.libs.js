@@ -127,6 +127,43 @@ const update_document = async (id, tenant, data) => {
         return false;
     }
 }
+const update_document_state = async (id, tenant, data) => {
+    try {
+        if (!id) { return false; }
+        const now = new Date()
+        const r = await pool.query(
+            `UPDATE ${tenant}.document SET states=$1, modified=$2 WHERE id_document=$3
+            RETURNING id_document, json_format, response_send, response_anulate, states, type, external_id `,
+            [data.state, now, data.id]
+        );
+        if (!r.rowCount) { return false; }
+
+        return r.rows[0];
+
+    } catch (error) {
+        console.log(error);
+        return false;
+    }
+}
+
+const update_returning_document = async (id, tenant, data) => {
+    try {
+        if (!id) { return false; }
+        const now = new Date()
+        const datos = JSON.stringify(data, null, 4)
+        const r = await pool.query(
+            `UPDATE ${tenant}.document SET states=$1, response_send=$2, modified=$3 WHERE id_document=$4
+            RETURNING id_document, json_format, response_send, response_anulate, states, type, external_id`,
+            [data.state, JSON.stringify(datos, null, 4), now, id]
+        );
+        if (!r.rowCount) { return false; }
+        return r.rows[0];
+
+    } catch (error) {
+        console.log(error);
+        return false;
+    }
+}
 
 const update_document_anulate = async (id, tenant, data) => {
     try {
@@ -239,65 +276,144 @@ const sendDoc = async (company, docu) => {
         }
     }
     let result;
-    if (docu.type == '31') {
-        const apiSunat = new ApiSunat(`${company.external_api.apisunat.url}/personas/v1/sendBill`)
-        const format_doc = adaptGuiaTransportista(company, JSON.parse(docu.json_format))
+    // Esto funciona con la api externa APISUNAT
+    // if (docu.type == '31') {
+    // const apiSunat = new ApiSunat(`${company.external_api.apisunat.url}/personas/v1/sendBill`)
+    // const format_doc = adaptGuiaTransportista(company, JSON.parse(docu.json_format))
 
-        result = await apiSunat.sendDocument(format_doc);
+    // result = await apiSunat.sendDocument(format_doc);
 
-        if (result.status === 'ERROR' || result.error) {
-            result.state = 'X';
-            if (result.message && result.message.search('Numeración repetida') > 0) {
-                result.state = 'E';
-            }
-        } else {
-            result.state = 'E';
-            result.data = { filename: format_doc.fileName };
-            result.links = {
-                xml: "",
-                pdf: `${company.external_api.apisunat.url}/documents/${result.documentId}/getPDF/A4/${format_doc.fileName}.pdf`,
-                cdr: ""
-            }
-        }
+    // if (result.status === 'ERROR' || result.error) {
+    //     result.state = 'X';
+    //     if (result.message && result.message.search('Numeración repetida') > 0) {
+    //         result.state = 'E';
+    //     }
+    // } else {
+    //     result.state = 'E';
+    //     result.data = { filename: format_doc.fileName };
+    //     result.links = {
+    //         xml: "",
+    //         pdf: `${company.external_api.apisunat.url}/documents/${result.documentId}/getPDF/A4/${format_doc.fileName}.pdf`,
+    //         cdr: ""
+    //     }
+    // }
 
-        result.external_id = docu.external_id
-        const doc = await update_document(docu.id_document, company.tenant, result);
-        if (!doc) result.state = 'U';
-        return result
+    // result.external_id = docu.external_id
+    // const doc = await update_document(docu.id_document, company.tenant, result);
+    // if (!doc) result.state = 'U';
+    // return result
+    // }
+    let url = `${company.url}/api/`;
+    switch (docu.type) {
+        case '09':
+            url += 'dispatches';
+            break;
+        case '31':
+            url += 'dispatch-carrier';
+            break;
+        default:
+            url += 'documents';
+            break;
     }
 
-    const api = new ApiClient(`${company.url}/api/documents`, token)
+    const api = new ApiClient(url, token)
     result = await api.sendDocument(docu.json_format)
 
     if (!result.success) {
-        result.state = 'X';
+        result.state = 'X'; //Error de envio al PRO
         if (result.message.search('ya se encuentra registrado') > 0) {
             result.state = 'E';
         }
     } else {
-        if (docu.states == 'S')
-            result.state = 'P';
+        if (docu.states == 'S') // Cuando aun no fue declarado pero se debe anular.
+            result.state = 'P'; // Pendiente de anulación
         else
             result.state = 'E';
 
         if (result.data.state_type_description == 'Rechazado')
             result.state = 'R';
+
+        if (docu.type == '09') {
+            result.state = 'Y'; // Guia enviada al pro mas no a sunat
+        }
     }
     result.external_id = docu.external_id
     // Guardar nuevo estado del documento
-    const doc = await update_document(docu.id_document, company.tenant, result)
-    if (!doc)
+    const boolupdated = await update_document(docu.id_document, company.tenant, result)
+    if (!boolupdated)
         result.state = 'U'; // updating error
 
     return result;
 }
 
+// API EXTERNA APISUNAT
 const getDocGuiaTransportista = async (company, docu) => {
     data = JSON.parse(docu.response_send)
     const apiSunat = new ApiSunat(`${company.external_api.apisunat.url}/documents/${data.documentId}/getById`)
     result = await apiSunat.getDocument();
     return result
 }
+
+const sendDispatch = async (company, docu) => {
+    const external_id = docu.data.external_id
+    const api = new ApiClient(`${company.url}/api/dispatches/send`, company.token)
+    const result = await api.sendDocument({ external_id });
+    console.log("sendDispatch", result);
+
+    if (!result.success) {
+        result.state = 'X';
+    }
+    result.state = 'E'; // Enviado de PRO a SUNAT
+    console.error({ id: docu.id_document, state: result.state });
+
+    const doc = await update_document_state(docu.id_document, company.tenant, { id: docu.id_document, state: result.state })
+    console.log(doc);
+
+    return { result, doc };
+}
+const checkDispatchStatusTicket = async (company, docu_response) => {
+    const external_id = docu_response.data.external_id
+    const api = new ApiClient(`${company.url}/api/dispatches/status_ticket`, company.token)
+    const result = await api.sendDocument({ external_id });
+    console.log(result);
+    if (!result.success) {
+        result.state = 'X';
+    }
+    result.state = 'W'; // Guia consultada en SUNAT
+    const doc = await update_returning_document(docu_response.id_document, company.tenant, result)
+    return result;
+}
+
+const processDispatchStateN = async (company, docu) => {
+    const result = await sendDoc(company, docu);
+    if (!result.success) {
+        throw new Error("El documento no aceptado por PRO");
+    }
+    const doc = await select_document_by_id(docu.id_document, company.tenant);
+    return processDispatchStateY(company, doc);
+};
+
+const processDispatchStateY = async (company, docu) => {
+    const parsed = JSON.parse(docu.response_send);
+    if (!parsed?.data?.external_id) {
+        throw new Error("External ID no encontrado");
+    }
+    parsed.id_document = docu.id_document;
+    const { result, doc } = await sendDispatch(company, parsed);
+    if (!result.success) {
+        throw new Error("Error al enviar Guia a SUNAT");
+    }
+    return processDispatchStateE(company, doc);
+};
+
+const processDispatchStateE = async (company, doc) => {
+    const parsed = JSON.parse(doc.response_send);
+    if (!parsed?.data?.external_id) {
+        throw new Error("External ID no encontrado");
+    }
+    parsed.id_document = doc.id_document;
+    return await checkDispatchStatusTicket(company, parsed);
+};
 
 const sendAllDocsPerCompany = async (company, api, docus) => {
 
@@ -636,4 +752,9 @@ module.exports = {
     getAllRejectedDocsAllCompanies,
     get_docs_month_filter,
     getDocGuiaTransportista,
+    checkDispatchStatusTicket,
+    sendDispatch,
+    processDispatchStateN,
+    processDispatchStateY,
+    processDispatchStateE,
 };

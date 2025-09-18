@@ -14,25 +14,27 @@ class ApiClient {
                 'Content-Type': 'application/json'
             },
             // data: data,
-            httpsAgent: this.agent
+            httpsAgent: this.agent,
         };
-        
+
     }
 
-    async sendDocument(data){
+    async sendDocument(data) {
         this.config.data = data;
+        this.config.timeout = 5000; // 5 seconds timeout
         let res;
+
         await axios(this.config)
             .then(response => {
                 res = response.data
-                delete res.data.qr
+                delete res?.data?.qr
             })
             .catch((error) => {
-                res =  error.response.data;
+                res = error.response.data;
             });
         return res;
     }
-    async getListDocumentByDate(url){
+    async getListDocumentByDate(url) {
         this.config.method = 'get';
         this.config.url = url;
 
@@ -42,7 +44,7 @@ class ApiClient {
                 res = response.data
             })
             .catch((error) => {
-                res =  error.response.data;
+                res = error.response.data;
             });
         return res;
     }
@@ -68,4 +70,4 @@ class ApiClient {
     // }
 }
 
-module.exports = {ApiClient};
+module.exports = { ApiClient };
