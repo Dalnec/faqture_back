@@ -109,10 +109,10 @@ const createDocument = async (req, res, next) => {
                 datos_del_cliente_o_receptor.apellidos_y_nombres_o_razon_social,
                 total_venta, 'N', JSON.stringify(strdocument, null, 4), company, external_id]
         } else {
-            const { destinatario } = document
+            const { datos_remitente } = document
             values = [now, now, date, id_venta, codigo_tipo_documento, serie_documento,
-                numero_documento, destinatario.numero_documento,
-                destinatario.apellidos_y_nombres_o_razon_social,
+                numero_documento, datos_remitente.numero_documento,
+                datos_remitente.apellidos_y_nombres_o_razon_social,
                 0, 'N', JSON.stringify(strdocument, null, 4), company, external_id]
         }
         response = await pool.query(
