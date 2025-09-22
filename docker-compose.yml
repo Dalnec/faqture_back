@@ -1,0 +1,10 @@
+version: "3"
+services:
+  faqture-api:
+    build: .
+    ports:
+      - "4000:4000"
+    volumes:
+      - .:/usr/src/app
+      - /usr/src/app/node_modules
+    command: npm run dev

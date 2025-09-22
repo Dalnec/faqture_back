@@ -9,6 +9,8 @@ const sendDocument = async (req, res, next) => {
     const company = await selectApiCompanyById(req.body.id_company)
     if (!company)
         res.status(405).json({ success: false, message: `Company Error!` })
+    if (!company.state)
+        res.status(405).json({ success: false, message: `Company Blocked!` })
 
     const docu = await select_document_by_id(req.body.id_document, company.tenant)
     if (!docu)
@@ -26,11 +28,12 @@ const sendDocumentAll = async (req, res, next) => {
     const company = await selectApiCompanyById(req.body.id_company)
     if (!company)
         return res.status(405).json({ success: false, message: `Company Error!` })
+    if (!company.state)
+        return res.status(405).json({ success: false, message: `Company Blocked!` })
 
     const docus = await select_all_documents(company.tenant)
-    const api = new ApiClient(`${company.url}/api/documents`, company.token)
 
-    const { num_aceptados, num_error, num_rechazados } = await sendAllDocsPerCompany(company, api, docus)
+    const { num_aceptados, num_error, num_rechazados } = await sendAllDocsPerCompany(company, docus)
 
     const counting = await countingDocsState(company.tenant)
 

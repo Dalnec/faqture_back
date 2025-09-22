@@ -358,12 +358,10 @@ const sendDispatch = async (company, docu) => {
     const external_id = docu.data.external_id
     const api = new ApiClient(`${company.url}/api/dispatches/send`, company.token)
     const result = await api.sendDocument({ external_id });
-    console.log("sendDispatch", result);
-
+    result.state = 'E'; // Enviado de PRO a SUNAT
     if (!result.success) {
         result.state = 'X';
     }
-    result.state = 'E'; // Enviado de PRO a SUNAT
     console.error({ id: docu.id_document, state: result.state });
 
     const doc = await update_document_state(docu.id_document, company.tenant, { id: docu.id_document, state: result.state })
@@ -375,11 +373,10 @@ const checkDispatchStatusTicket = async (company, docu_response) => {
     const external_id = docu_response.data.external_id
     const api = new ApiClient(`${company.url}/api/dispatches/status_ticket`, company.token)
     const result = await api.sendDocument({ external_id });
-    console.log(result);
+    result.state = 'W'; // Guia consultada en SUNAT
     if (!result.success) {
         result.state = 'X';
     }
-    result.state = 'W'; // Guia consultada en SUNAT
     const doc = await update_returning_document(docu_response.id_document, company.tenant, result)
     return result;
 }
@@ -415,14 +412,28 @@ const processDispatchStateE = async (company, doc) => {
     return await checkDispatchStatusTicket(company, parsed);
 };
 
-const sendAllDocsPerCompany = async (company, api, docus) => {
+const sendAllDocsPerCompany = async (company, docus) => {
 
     let result;
     let num_aceptados = 0;
     let num_error = 0;
     let num_rechazados = 0;
+    let api;
 
     for (let docu of docus) {
+        let url = `${company.url}/api/`;
+        switch (docu.type) {
+            case '09':
+                url += 'dispatches';
+                break;
+            case '31':
+                url += 'dispatch-carrier';
+                break;
+            default:
+                url += 'documents';
+                break;
+        }
+        api = new ApiClient(url, company.token)
         result = await api.sendDocument(docu.json_format)
         if (!result.success) {
             result.state = 'X';
@@ -442,6 +453,9 @@ const sendAllDocsPerCompany = async (company, api, docus) => {
             if (result.data.state_type_description == 'Rechazado') {
                 result.state = 'R';
                 num_rechazados += 1;
+            }
+            if (docu.type == '09') {
+                result.state = 'Y'; // Guia enviada al pro mas no a sunat
             }
             result.external_id = docu.external_id
             // Guardar nuevo estado del documento
@@ -533,19 +547,24 @@ const sendAllDocsAllCompanies = async () => {
 
     const companies = await selectAllApiCompany()
     for (let company of companies) {
-        const docus = await select_all_documents(company.tenant)
-        if (docus.length > 0) {
-            const api = new ApiClient(`${company.url}/api/documents`, company.token)
-            let { num_aceptados, num_error, num_rechazados } = await sendAllDocsPerCompany(company, api, docus)
-            console.log({
-                company: company.tenant,
-                message: 'Comprobantes Nuevos Enviados',
-                num_aceptados: `Aceptados ${num_aceptados}`,
-                num_rechazados: `Rechazados ${num_rechazados}`,
-                num_error: `Con Error ${num_error}`
-            });
+        if (company.state && company.url && company.token) {
+            const docus = await select_all_documents(company.tenant)
+            if (docus.length > 0) {
+                let { num_aceptados, num_error, num_rechazados } = await sendAllDocsPerCompany(company, docus)
+                console.log({
+                    company: company.tenant,
+                    message: 'Comprobantes Nuevos Enviados',
+                    num_aceptados: `Aceptados ${num_aceptados}`,
+                    num_rechazados: `Rechazados ${num_rechazados}`,
+                    num_error: `Con Error ${num_error}`
+                });
+                console.log(`Processing company: ${company.tenant} with ${docus.length} documents`);
+            } else {
+                console.log(company.tenant, "no documents");
+            }
+        } else {
+            console.log(company.tenant, "company blocked or missing url/token");
         }
-        console.log(company.tenant, "no documents");
     }
 };
 

@@ -803,6 +803,9 @@ const verifyDispatchesStatusTicket = async (req, res, next) => {
             case 'W':
                 response = JSON.parse(doc.response_send);
                 break;
+            case 'X':
+                response = JSON.parse(doc.response_send);
+                break;
             default:
                 return res.status(400).json({ success: false, message: "Estado no válido" });
         }
@@ -810,7 +813,6 @@ const verifyDispatchesStatusTicket = async (req, res, next) => {
             return res.status(400).json({ success: false, ...response });
         }
         return res.status(200).json({ success: true, ...response })
-        // return res.status(200).json({ success: true, data: {} })
     } catch (error) {
         res.status(401).json({
             success: false,
