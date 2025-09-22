@@ -80,12 +80,9 @@ const getDocumentById = async (req, res, next) => {
 const createDocument = async (req, res, next) => {
     try {
         const tenant = req.params.tenant;
-        // const strdocument = JSON.parse(req.body.document)
         const strdocument = JSON.stringify(req.body, null, 4)
         const document = req.body
-        // console.log(req.body);
         const { company, company_number } = req.params
-
         const { codigo_tipo_documento } = document
 
         if (!codigo_tipo_documento) {
@@ -96,6 +93,11 @@ const createDocument = async (req, res, next) => {
 
         const { id_venta, fecha_de_emision, hora_de_emision, serie_documento,
             numero_documento } = document
+
+        let doc = await select_document_by_serie_number(tenant, serie_documento, numero_documento);
+        if (doc) {
+            return res.status(404).json({ success: true, data: JSON.parse(doc.response_send), message: "Documento no encontrado", })
+        }
 
         const now = new Date()
         const date = `${fecha_de_emision} ${hora_de_emision}`
