@@ -9,8 +9,9 @@ const sendDocument = async (req, res, next) => {
     const company = await selectApiCompanyById(req.body.id_company)
     if (!company)
         res.status(405).json({ success: false, message: `Company Error!` })
+
     if (!company.state)
-        res.status(405).json({ success: false, message: `Company Blocked!` })
+        return res.status(405).json({ success: false, message: `Company Blocked!` })
 
     const docu = await select_document_by_id(req.body.id_document, company.tenant)
     if (!docu)

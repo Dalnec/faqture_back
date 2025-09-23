@@ -4,7 +4,7 @@ const selectApiCompanyById = async (id) => {
     try {
         if (!id) { return false; }
 
-        const company = await pool.query(`SELECT url, token, tenant, autosend, token_series, external_api, company_number, company, state address FROM public.company WHERE state=true AND id_company = $1`, [id]);
+        const company = await pool.query(`SELECT url, token, tenant, autosend, token_series, external_api, company_number, company, state, address FROM public.company WHERE state=true AND id_company = $1`, [id]);
         if (!company.rowCount) { return false; }
         return { ...company.rows[0] }
 
