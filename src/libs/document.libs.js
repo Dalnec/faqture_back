@@ -35,7 +35,7 @@ const select_document_by_external_id = async (external_id, tenant) => {
 const select_document_by_serie_number = async (tenant, serie, numero) => {
     try {
         if (!tenant) { return false; }
-        const docs = await pool.query(`SELECT id_document, cod_sale, json_format, response_send, response_anulate, states, external_id, type FROM ${tenant}.document WHERE serie=$1 AND numero=$2`, [serie, numero]);
+        const docs = await pool.query(`SELECT id_document, cod_sale, serie, numero, json_format, response_send, response_anulate, states, external_id, type FROM ${tenant}.document WHERE serie=$1 AND numero=$2`, [serie, numero]);
         if (!docs.rowCount) { return false; }
         return docs.rows[0];
 
@@ -133,7 +133,7 @@ const update_document_state = async (id, tenant, data) => {
         const now = new Date()
         const r = await pool.query(
             `UPDATE ${tenant}.document SET states=$1, modified=$2 WHERE id_document=$3
-            RETURNING id_document, json_format, response_send, response_anulate, states, type, external_id `,
+            RETURNING id_document, cod_sale, serie, numero, json_format, response_send, response_anulate, states, type, external_id `,
             [data.state, now, data.id]
         );
         if (!r.rowCount) { return false; }
@@ -265,6 +265,10 @@ const formatAnulatePerCompany = async (tenant) => {
 
 
 const sendDoc = async (company, docu) => {
+    let doc = await select_document_by_serie_number(company.tenant, docu.serie_documento, docu.numero_documento);
+    if (doc) {
+        return JSON.parse(doc.response_send);
+    }
     let token = company.token
     if (company.token_series && company.token_series.length > 0) {
         const sale = JSON.parse(docu.json_format)

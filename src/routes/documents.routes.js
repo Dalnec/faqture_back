@@ -8,7 +8,7 @@ const { getDocuments, getDocumentById, createDocument, updateDocument, deleteDoc
     getDocumentCustomers, getDocumentByFiltersReport, updateApiDocument, clearDocuments, createApiDocument,
     externalIdFormatNotaCredito, getXML, getXMLByTenant, getXMLByTenant2, reportDocuments, getRejected, reports,
     updateJsonFormat, verifyDocumentBySerieNumber, reportConcar, reportContaSisCorp,
-    verifyDispatchesStatusTicket } = require('../controllers/documents.controllers');
+    verifyDispatchesStatusTicket, nullifyDocument } = require('../controllers/documents.controllers');
 const { verifyCompanyByTenant } = require('../middlewares/company.middleware');
 
 // router.get('/documents/:tenant', [verifyToken], getDocuments)
@@ -16,6 +16,7 @@ router.get('/documents/:tenant/:id', [verifyToken], getDocumentById)
 router.get('/documents-filters/:tenant', [verifyToken], getDocumentByFilters)
 router.post('/documents/:tenant', verifyLocalToken, createDocument)
 router.put('/documents/:tenant/:id', updateDocument)
+router.put('/documents/:tenant/nullify', verifyLocalToken, nullifyDocument)
 router.put('/documents/:tenant/api/:id', verifyLocalToken, updateApiDocument)
 router.delete('/documents/:tenant/:id', [verifyToken], deleteDocument)
 router.get('/documents-customers/:tenant', getDocumentCustomers)

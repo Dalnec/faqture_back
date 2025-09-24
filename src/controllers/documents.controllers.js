@@ -4,7 +4,7 @@ const { setNewValues, setFiltersOR, setFiltersDocs } = require('../libs/function
 const { sendDoc, get_correlative_number, select_document_by_serie_number, verifyingExternalIds,
     getAllRejectedDocsAllCompanies, get_docs_month_filter, select_document_by_external_id,
     getDocGuiaTransportista, checkDispatchStatusTicket, sendDispatch, processDispatchStateN,
-    processDispatchStateY, processDispatchStateE } = require('../libs/document.libs');
+    processDispatchStateY, processDispatchStateE, update_document_state } = require('../libs/document.libs');
 const { selectApiCompanyById, getCompanyByNumber, getCompanyByTenant } = require('../libs/company.libs');
 const { ApiClient } = require('../libs/api.libs');
 const { listReportDocuments } = require('../libs/connection');
@@ -202,14 +202,12 @@ const createApiDocument = async (req, res, next) => {
     }
 };
 
+// LEGACY - to be removed
 const updateApiDocument = async (req, res, next) => {
     // use to update state to anulate
     try {
-        // const id = parseInt(req.params.id);
         const id = req.params.id;
         const tenant = req.params.tenant;
-        // let newData = req.body;
-        // const newData = setNewValues(req.body)
         let message = '';
         let state = '';
         let code = 200;
@@ -264,6 +262,71 @@ const updateApiDocument = async (req, res, next) => {
             data: {
                 cod_sale: response.rows[0].cod_sale,
                 filename: `${response.rows[0].type}-${response.rows[0].serie}-${response.rows[0].numero}`,
+                state: state
+            }
+        })
+    } catch (error) {
+        res.status(401).json({
+            success: false,
+            message: error.message
+        })
+    }
+};
+
+const nullifyDocument = async (req, res, next) => {
+    try {
+        const tenant = req.params.tenant;
+        const { serie, number } = req.body
+        let message = '';
+        let state = '';
+        let code = 200;
+        let doc = await select_document_by_serie_number(tenant, serie, number);
+        if (!doc) {
+            return res.status(404).json({ success: false, message: "Documento no encontrado", })
+        }
+        doc = doc.rows[0];
+        switch (doc.states) {
+            case 'A':
+                message = 'Document Already Annulled!';
+                break;
+            case 'P':
+                message = 'Document To Annulled!';
+                break;
+            case 'C':
+                message = 'Document To Consult Annulled!';
+                break;
+            case 'S':
+                message = 'Document To Send/Annulled!';
+                break;
+            case 'N':
+                state = 'S';
+                break;
+            case 'E':
+                state = 'P';
+                break;
+            default:
+                message = 'Error!';
+                code = 405;
+                break;
+        }
+        if (message != '')
+            return res.status(code).json({
+                success: false,
+                data: {
+                    cod_sale: doc.cod_sale,
+                    filename: `${doc.type}-${doc.serie}-${doc.numero}`,
+                    state: doc.states
+                },
+                message: message
+            })
+
+        const response = await update_document_state(doc.id, tenant, { id: doc.id, state: state });
+        const d = response.rows[0];
+        res.status(200).json({
+            success: true,
+            data: {
+                cod_sale: d.cod_sale,
+                filename: `${d.type}-${d.serie}-${d.numero}`,
                 state: state
             }
         })
@@ -858,5 +921,6 @@ module.exports = {
     reportConcar,
     reportContaSisCorp,
     getXMLByTenant2,
-    verifyDispatchesStatusTicket
+    verifyDispatchesStatusTicket,
+    nullifyDocument
 };
