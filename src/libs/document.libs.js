@@ -362,11 +362,7 @@ const sendDispatch = async (company, docu) => {
     if (!result.success) {
         result.state = 'X';
     }
-    console.error({ id: docu.id_document, state: result.state });
-
     const doc = await update_document_state(docu.id_document, company.tenant, { id: docu.id_document, state: result.state })
-    console.log(doc);
-
     return { result, doc };
 }
 const checkDispatchStatusTicket = async (company, docu_response) => {

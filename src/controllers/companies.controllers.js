@@ -26,7 +26,41 @@ const { createTenantCompany } = require('./tenant.controllers')
 // }
 const getCompaniesList = async (req, res, next) => {
     try {
-        const response = await pool.query('SELECT id_company, company_number, company, tenant FROM company');
+        const { page = 1, itemsPerPage = 20, company, company_number, tenant } = req.query;
+
+        // Construcción dinámica del filtro
+        let whereClauses = [];
+        let params = [];
+        let idx = 1; // contador para los parámetros $1, $2, etc
+
+        if (company) {
+            whereClauses.push(`company ILIKE $${idx++}`);
+            params.push(`%${company}%`);
+        }
+        if (company_number) {
+            whereClauses.push(`company_number ILIKE $${idx++}`);
+            params.push(`%${company_number}%`);
+        }
+        if (tenant) {
+            whereClauses.push(`tenant ILIKE $${idx++}`);
+            params.push(`%${tenant}%`);
+        }
+
+        const whereSQL = whereClauses.length > 0 ? "WHERE " + whereClauses.join(" OR ") : "";
+        // 1. Obtener el total de empresas
+        const totalResult = await pool.query(`SELECT COUNT(*) AS total FROM company ${whereSQL}`, params);
+        const total = parseInt(totalResult.rows[0].total);
+
+        // 2. Obtener las empresas paginadas
+        params.push(itemsPerPage, (page - 1) * itemsPerPage); // agregar limites
+        const response = await pool.query(
+            `SELECT id_company, company_number, company, tenant, state 
+            FROM company
+            ${whereSQL}
+            ORDER BY company ASC
+            LIMIT $${idx++} OFFSET $${idx++}`,
+            params
+        );
 
         // Ejecutar todas las consultas en paralelo
         const list = await Promise.all(
@@ -54,7 +88,14 @@ const getCompaniesList = async (req, res, next) => {
             })
         );
 
-        res.status(200).json(list);
+        // res.status(200).json(list);
+        // 4. Retornar datos + total
+        res.status(200).json({
+            total,
+            page: Number(page),
+            itemsPerPage: Number(itemsPerPage),
+            data: list
+        });
     } catch (error) {
         console.error('Error in getCompaniesList:', error);
         res.status(500).json({ error: error.message });

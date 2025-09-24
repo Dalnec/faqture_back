@@ -781,14 +781,26 @@ const verifyDispatchesStatusTicket = async (req, res, next) => {
     try {
         const tenant = req.params.tenant;
         const { serie, number } = req.body
+        let company;
+        if (tenant) {
+            company = await getCompanyByTenant(tenant)
+            if (!company) {
+                return res.status(400).json({ success: false, message: 'Cliente no encontrado' })
+            }
+        } else {
+            const id_company = req.body.id_company
+            if (!id_company) {
+                return res.status(400).json({ success: false, message: 'Cliente no proporcionado' })
+            }
+            company = await selectApiCompanyById(id_company)
+            if (!company) {
+                return res.status(400).json({ success: false, message: 'Cliente no encontrado' })
+            }
+        }
+
         let doc = await select_document_by_serie_number(tenant, serie, number);
         if (!doc) {
             return res.status(404).json({ success: false, message: "Documento no encontrado", })
-        }
-
-        const company = await getCompanyByTenant(tenant)
-        if (!company) {
-            return res.status(400).json({ success: false, message: 'Cliente no encontrado' })
         }
 
         let response;
