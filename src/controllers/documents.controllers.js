@@ -284,7 +284,7 @@ const nullifyDocument = async (req, res, next) => {
         if (!doc) {
             return res.status(404).json({ success: false, message: "Documento no encontrado", })
         }
-        doc = doc.rows[0];
+
         switch (doc.states) {
             case 'A':
                 message = 'Document Already Annulled!';
@@ -320,13 +320,13 @@ const nullifyDocument = async (req, res, next) => {
                 message: message
             })
 
-        const response = await update_document_state(doc.id, tenant, { id: doc.id, state: state });
-        const d = response.rows[0];
+        const response = await update_document_state(doc.id_document, tenant, { id: doc.id_document, state: state });
+
         res.status(200).json({
             success: true,
             data: {
-                cod_sale: d.cod_sale,
-                filename: `${d.type}-${d.serie}-${d.numero}`,
+                cod_sale: response.cod_sale,
+                filename: `${response.type}-${response.serie}-${response.numero}`,
                 state: state
             }
         })

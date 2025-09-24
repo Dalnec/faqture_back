@@ -753,6 +753,7 @@ module.exports = {
     select_all_documents,
     update_document,
     update_document_anulate,
+    update_document_state,
     formatAnulate,
     formatAnulatePerCompany,
     sendAllDocsPerCompany,
