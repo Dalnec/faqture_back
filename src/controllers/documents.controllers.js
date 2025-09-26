@@ -94,34 +94,35 @@ const createDocument = async (req, res, next) => {
         const { id_venta, fecha_de_emision, hora_de_emision, serie_documento,
             numero_documento } = document
 
-        let doc = await select_document_by_serie_number(tenant, serie_documento, numero_documento);
-        if (!doc) {
-            // return res.status(200).json({ success: true, data: JSON.parse(doc.response_send), message: "Documento no encontrado", })
+        // let doc = await select_document_by_serie_number(tenant, serie_documento, numero_documento);
+        // if (doc) {
+        // return res.status(200).json({ success: true, data: JSON.parse(doc.response_send), message: "Documento no encontrado", })
+        // }
 
-            const now = new Date()
-            const date = `${fecha_de_emision} ${hora_de_emision}`
-            const external_id = nanoid()
+        const now = new Date()
+        const date = `${fecha_de_emision} ${hora_de_emision}`
+        const external_id = nanoid()
 
-            if (codigo_tipo_documento !== '31') {
-                const { datos_del_cliente_o_receptor, totales } = document
-                const total_venta = totales ? totales.total_venta : 0
-                values = [now, now, date, id_venta, codigo_tipo_documento, serie_documento,
-                    numero_documento, datos_del_cliente_o_receptor.numero_documento,
-                    datos_del_cliente_o_receptor.apellidos_y_nombres_o_razon_social,
-                    total_venta, 'N', JSON.stringify(strdocument, null, 4), company, external_id]
-            } else {
-                const { datos_remitente } = document
-                values = [now, now, date, id_venta, codigo_tipo_documento, serie_documento,
-                    numero_documento, datos_remitente.numero_documento,
-                    datos_remitente.apellidos_y_nombres_o_razon_social,
-                    0, 'N', JSON.stringify(strdocument, null, 4), company, external_id]
-            }
-            response = await pool.query(
-                `INSERT INTO ${tenant}.document(created, modified, date, cod_sale, type, serie, numero, 
+        if (codigo_tipo_documento !== '31') {
+            const { datos_del_cliente_o_receptor, totales } = document
+            const total_venta = totales ? totales.total_venta : 0
+            values = [now, now, date, id_venta, codigo_tipo_documento, serie_documento,
+                numero_documento, datos_del_cliente_o_receptor.numero_documento,
+                datos_del_cliente_o_receptor.apellidos_y_nombres_o_razon_social,
+                total_venta, 'N', JSON.stringify(strdocument, null, 4), company, external_id]
+        } else {
+            const { datos_remitente } = document
+            values = [now, now, date, id_venta, codigo_tipo_documento, serie_documento,
+                numero_documento, datos_remitente.numero_documento,
+                datos_remitente.apellidos_y_nombres_o_razon_social,
+                0, 'N', JSON.stringify(strdocument, null, 4), company, external_id]
+        }
+        response = await pool.query(
+            `INSERT INTO ${tenant}.document(created, modified, date, cod_sale, type, serie, numero, 
                 customer_number, customer, amount, states, json_format, id_company, external_id) 
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14 ) RETURNING *`, values
-            );
-        }
+        );
+
         let result = {}
         const apiCompany = await selectApiCompanyById(company)
         if (apiCompany.autosend) {
