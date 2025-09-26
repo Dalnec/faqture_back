@@ -11,6 +11,7 @@ const { getDocuments, getDocumentById, createDocument, updateDocument, deleteDoc
     verifyDispatchesStatusTicket, nullifyDocument } = require('../controllers/documents.controllers');
 const { verifyCompanyByTenant } = require('../middlewares/company.middleware');
 
+router.get('/documents/:tenant/xml/', getXMLByTenant)
 // router.get('/documents/:tenant', [verifyToken], getDocuments)
 router.get('/documents/:tenant/:id', [verifyToken], getDocumentById)
 router.get('/documents-filters/:tenant', [verifyToken], getDocumentByFilters)
@@ -70,7 +71,6 @@ router.post('/api/documents/:tenant', verifyLocalToken, createApiDocument)
 router.put('/api/documents/:tenant/:id', verifyLocalToken, updateApiDocument)
 
 // router.get('/documents/:tenant/xml/:external_id', getXMLByTenant)
-router.get('/documents/:tenant/xml/', getXMLByTenant)
 router.get('/api/documents/:tenant/xml/:external_id', getXMLByTenant2)
 router.get('/downloads/document/xml', getXML)
 router.get('/api/documents/report/accountant/:tenant', [verifyCompanyByTenant], reportDocuments)

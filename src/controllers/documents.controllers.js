@@ -444,6 +444,7 @@ const getXMLByTenant = async (req, res, next) => {
         // const { tenant, external_id } = req.params;
         const tenant = req.params.tenant;
         const { serie, number } = req.query;
+
         // if (!external_id) {
         //     return res.status(400).json({ success: false, message: 'External ID no encontrado' })
         // }
