@@ -238,7 +238,7 @@ const disableAutoSendCompanies = async (req, res, next) => {
             await pool.query(`UPDATE public.company SET autosend = $1 WHERE id_company = $2`, [autosend || false, company.id_company]);
         }
         res.json({
-            state: 'success',
+            success: true,
             message: "Envio Automatico Companies Disabled!"
         })
     } catch (error) {

@@ -33,7 +33,7 @@ const verifyLocalToken = async (req, res, next) => {
         }
 
         if (!company.rows[0].state) {
-            return res.status(403).json({ error: 'Por favor!, Comuniquese con su proveedor' });
+            return res.status(403).json({ error: 'Empresa Inactiva. Por favor!, Comuniquese con su proveedor' });
         }
 
         return next();

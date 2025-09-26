@@ -325,7 +325,7 @@ const sendDoc = async (company, docu) => {
 
     if (!result.success) {
         result.state = 'X'; //Error de envio al PRO
-        if (result.message.search('ya se encuentra registrado') > 0) {
+        if (result?.message.search('ya se encuentra registrado') > 0) {
             result.state = 'E';
         }
     } else {
@@ -383,11 +383,18 @@ const checkDispatchStatusTicket = async (company, docu_response) => {
 
 const processDispatchStateN = async (company, docu) => {
     const result = await sendDoc(company, docu);
+    console.log({ result });
+    if (result?.message?.search('ya se encuentra registrado') > 0) {
+        console.log('Documento ya registrado N');
+        const doc = await select_document_by_id(docu.id_document, company.tenant);
+        return { ...result, doc };
+    }
     if (!result.success) {
         throw new Error("El documento no aceptado por PRO");
     }
     const doc = await select_document_by_id(docu.id_document, company.tenant);
-    return processDispatchStateY(company, doc);
+    // return processDispatchStateY(company, doc);
+    return { ...result, doc };
 };
 
 const processDispatchStateY = async (company, docu) => {
@@ -400,7 +407,8 @@ const processDispatchStateY = async (company, docu) => {
     if (!result.success) {
         throw new Error("Error al enviar Guia a SUNAT");
     }
-    return processDispatchStateE(company, doc);
+    // return processDispatchStateE(company, doc);
+    return { ...result, doc };
 };
 
 const processDispatchStateE = async (company, doc) => {

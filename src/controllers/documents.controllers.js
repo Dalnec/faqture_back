@@ -441,15 +441,21 @@ const getXML = async (req, res, next) => {
 }
 const getXMLByTenant = async (req, res, next) => {
     try {
-        const { tenant, external_id } = req.params;
-        if (!external_id) {
-            return res.status(400).json({ success: false, message: 'External ID no encontrado' })
+        // const { tenant, external_id } = req.params;
+        const tenant = req.params.tenant;
+        const { serie, number } = req.query;
+        // if (!external_id) {
+        //     return res.status(400).json({ success: false, message: 'External ID no encontrado' })
+        // }
+        if (!serie || !number) {
+            return res.status(400).json({ success: false, message: 'Faltan parametros para la consulta' })
         }
         const company = await getCompanyByTenant(tenant)
         if (!company) {
             return res.status(400).json({ success: false, message: 'Cliente no encontrado' })
         }
-        let doc = await select_document_by_external_id(external_id, company.tenant)
+        // let doc = await select_document_by_external_id(external_id, company.tenant)
+        let doc = await select_document_by_serie_number(tenant, serie, number);
         if (!doc) {
             return res.status(400).json({ success: false, message: 'Documento no encontrado' })
         }
@@ -886,6 +892,7 @@ const verifyDispatchesStatusTicket = async (req, res, next) => {
             default:
                 return res.status(400).json({ success: false, message: "Estado no válido" });
         }
+        delete response.doc
         if (!response?.success) {
             return res.status(400).json({ success: false, ...response });
         }
