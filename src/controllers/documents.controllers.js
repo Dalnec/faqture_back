@@ -96,7 +96,7 @@ const createDocument = async (req, res, next) => {
 
         let doc = await select_document_by_serie_number(tenant, serie_documento, numero_documento);
         if (doc) {
-            return res.status(404).json({ success: true, data: JSON.parse(doc.response_send), message: "Documento no encontrado", })
+            return res.status(200).json({ success: true, data: JSON.parse(doc.response_send), message: "Documento no encontrado", })
         }
 
         const now = new Date()
