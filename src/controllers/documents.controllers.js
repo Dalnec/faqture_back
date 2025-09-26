@@ -238,6 +238,10 @@ const updateApiDocument = async (req, res, next) => {
             case 'E':
                 state = 'P';
                 break;
+            case 'R':
+                message = 'Document Rejected, Can not be Annulled!';
+                code = 405;
+                break;
             default:
                 message = 'Error!';
                 code = 405;
@@ -245,7 +249,7 @@ const updateApiDocument = async (req, res, next) => {
         }
         if (message != '')
             return res.status(code).json({
-                success: false,
+                success: doc.rows[0].states == 'R' ? true : false,
                 data: {
                     cod_sale: doc.rows[0].cod_sale,
                     filename: `${doc.rows[0].type}-${doc.rows[0].serie}-${doc.rows[0].numero}`,
