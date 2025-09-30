@@ -325,7 +325,7 @@ const sendDoc = async (company, docu) => {
 
     if (!result.success) {
         result.state = 'X'; //Error de envio al PRO
-        if (result?.message.search('ya se encuentra registrado') > 0) {
+        if (result?.message?.search('ya se encuentra registrado') > 0) {
             result.state = 'E';
         }
     } else {
@@ -447,7 +447,7 @@ const sendAllDocsPerCompany = async (company, docus) => {
             result.state = 'X';
             num_error += 1;
 
-            if (result.message.search('ya se encuentra registrado') > 0) {
+            if (result?.message?.search('ya se encuentra registrado') > 0) {
                 result.state = 'E';
             }
             await update_document(docu.id_document, company.tenant, result)
