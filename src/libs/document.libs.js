@@ -325,8 +325,16 @@ const sendDoc = async (company, docu) => {
 
     if (!result.success) {
         result.state = 'X'; //Error de envio al PRO
-        if (result?.message?.search('ya se encuentra registrado') > 0) {
-            result.state = 'E';
+        if (typeof result?.message === 'string') {
+            if (result?.message?.search('ya se encuentra registrado') > 0) {
+                result.state = 'E';
+            }
+        } else { // sometimes message is an object so show all messages
+            const messages = Object.values(result.message).map(m => (Array.isArray(m) ? m.join(', ') : m)).join('; ');
+            if (messages.search('ya se encuentra registrado') > 0) {
+                result.state = 'E';
+            }
+            console.log(messages);
         }
     } else {
         if (docu.states == 'S') // Cuando aun no fue declarado pero se debe anular.
