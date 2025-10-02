@@ -334,7 +334,6 @@ const sendDoc = async (company, docu) => {
             if (messages.search('ya se encuentra registrado') > 0) {
                 result.state = 'E';
             }
-            console.log(messages);
         }
     } else {
         if (docu.states == 'S') // Cuando aun no fue declarado pero se debe anular.
@@ -384,6 +383,9 @@ const checkDispatchStatusTicket = async (company, docu_response) => {
     result.state = 'W'; // Guia consultada en SUNAT
     if (!result.success) {
         result.state = 'X';
+    } else {
+        if (result.data.state_type_id === '09')
+            result.state = 'R';
     }
     const doc = await update_returning_document(docu_response.id_document, company.tenant, result)
     return result;
@@ -455,8 +457,15 @@ const sendAllDocsPerCompany = async (company, docus) => {
             result.state = 'X';
             num_error += 1;
 
-            if (result?.message?.search('ya se encuentra registrado') > 0) {
-                result.state = 'E';
+            if (typeof result?.message === 'string') {
+                if (result?.message?.search('ya se encuentra registrado') > 0) {
+                    result.state = 'E';
+                }
+            } else { // sometimes message is an object so show all messages
+                const messages = Object.values(result.message).map(m => (Array.isArray(m) ? m.join(', ') : m)).join('; ');
+                if (messages.search('ya se encuentra registrado') > 0) {
+                    result.state = 'E';
+                }
             }
             await update_document(docu.id_document, company.tenant, result)
         }
