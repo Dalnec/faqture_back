@@ -381,12 +381,11 @@ const checkDispatchStatusTicket = async (company, docu_response) => {
     const api = new ApiClient(`${company.url}/api/dispatches/status_ticket`, company.token)
     const result = await api.sendDocument({ external_id });
     result.state = 'W'; // Guia consultada en SUNAT
-    if (!result.success) {
+    if (!result.success)
         result.state = 'X';
-    } else {
-        if (result.data.state_type_id === '09')
-            result.state = 'R';
-    }
+    if (result.data.state_type_id === '09')
+        result.state = 'R';
+
     const doc = await update_returning_document(docu_response.id_document, company.tenant, result)
     return result;
 }
