@@ -344,7 +344,7 @@ const sendDoc = async (company, docu) => {
         if (result.data.state_type_description == 'Rechazado')
             result.state = 'R';
 
-        if (docu.type == '09') {
+        if (docu.type == '09' || docu.type == '31') {
             result.state = 'Y'; // Guia enviada al pro mas no a sunat
         }
     }
@@ -480,7 +480,7 @@ const sendAllDocsPerCompany = async (company, docus) => {
                 result.state = 'R';
                 num_rechazados += 1;
             }
-            if (docu.type == '09') {
+            if (docu.type == '09' || docu.type == '31') {
                 result.state = 'Y'; // Guia enviada al pro mas no a sunat
             }
             result.external_id = docu.external_id
