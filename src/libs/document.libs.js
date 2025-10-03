@@ -452,9 +452,9 @@ const sendAllDocsPerCompany = async (company, docus) => {
         }
         api = new ApiClient(url, company.token)
         result = await api.sendDocument(docu.json_format)
-        console.log("TASK", { result });
 
         if (!result.success) {
+            console.log("TASK", { result });
             result.state = 'X';
             num_error += 1;
 
