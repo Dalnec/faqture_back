@@ -240,7 +240,7 @@ const updateApiDocument = async (req, res, next) => {
                 break;
             case 'R':
                 message = 'Document Rejected, Can not be Annulled!';
-                code = 405;
+                code = 200;
                 break;
             default:
                 message = 'Error!';
