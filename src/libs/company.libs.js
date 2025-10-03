@@ -28,7 +28,7 @@ const selectApiCompanyByTenant = async (tenant) => {
 
 const selectAllApiCompany = async () => {
     try {
-        const company = await pool.query(`SELECT id_company, company_number, company, url, token, tenant, autosend, localtoken, state FROM public.company WHERE state=true ORDER BY company`);
+        const company = await pool.query(`SELECT id_company, company_number, company, url, token, tenant, autosend, localtoken, state FROM public.company WHERE state=true ORDER BY company ASC`);
         if (!company.rowCount) { return false; }
         return company.rows
 

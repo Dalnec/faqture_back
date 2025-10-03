@@ -452,6 +452,8 @@ const sendAllDocsPerCompany = async (company, docus) => {
         }
         api = new ApiClient(url, company.token)
         result = await api.sendDocument(docu.json_format)
+        console.log("TASK", { result });
+
         if (!result.success) {
             result.state = 'X';
             num_error += 1;
@@ -574,6 +576,7 @@ const sendAllDocsAllCompanies = async () => {
         if (company.state && company.url && company.token) {
             const docus = await select_all_documents(company.tenant)
             if (docus.length > 0) {
+                console.log(`Processing company: ${company.tenant} with ${docus.length} documents`);
                 let { num_aceptados, num_error, num_rechazados } = await sendAllDocsPerCompany(company, docus)
                 console.log({
                     company: company.tenant,
@@ -582,7 +585,6 @@ const sendAllDocsAllCompanies = async () => {
                     num_rechazados: `Rechazados ${num_rechazados}`,
                     num_error: `Con Error ${num_error}`
                 });
-                console.log(`Processing company: ${company.tenant} with ${docus.length} documents`);
             } else {
                 console.log(company.tenant, "no documents");
             }
