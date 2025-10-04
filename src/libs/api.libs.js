@@ -26,7 +26,7 @@ class ApiClient {
 
         await axios(this.config)
             .then(response => {
-                res = response.data
+                res = response?.data
                 delete res?.data?.qr
             })
             .catch((error) => {
