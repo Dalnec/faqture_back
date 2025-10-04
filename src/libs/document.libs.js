@@ -429,6 +429,33 @@ const processDispatchStateE = async (company, doc) => {
     return await checkDispatchStatusTicket(company, parsed);
 };
 
+const validarMensajeError = (response) => {
+    // Si no hay respuesta o success no es false, retornar true
+    if (!response || response.success !== false) {
+        return true;
+    }
+
+    // Lista de mensajes de error a detectar
+    const mensajesError = [
+        'Undefined index: totales',
+        'Invalid argument supplied for foreach()',
+        'No se encontró la URL especificada',
+        'serie ingresada',
+        'fecha de emisión no puede ser menor'
+    ];
+
+    // Verificar si el mensaje contiene alguno de los errores
+    const mensaje = response.message || '';
+
+    for (let error of mensajesError) {
+        if (mensaje.includes(error)) {
+            return false; // Error detectado
+        }
+    }
+
+    return true; // No hay errores conocidos
+};
+
 const sendAllDocsPerCompany = async (company, docus) => {
 
     let result;
@@ -438,6 +465,10 @@ const sendAllDocsPerCompany = async (company, docus) => {
     let api;
 
     for (let docu of docus) {
+        if (validarMensajeError(JSON.parse(docu.response_send)) === false) {
+            console.log(`Saltando error: ${docu.response_send}`);
+            continue;
+        }
         let url = `${company.url}/api/`;
         switch (docu.type) {
             case '09':
