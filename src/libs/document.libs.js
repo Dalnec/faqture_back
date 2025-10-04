@@ -443,7 +443,8 @@ const validarMensajeError = (response) => {
         'serie ingresada',
         'SQLSTATE[23000]: Integrity constraint violation:',
         'El tipo doc. identidad Doc.trib.no.dom.sin.ruc del cliente no es válido.',
-        'fecha de emisión no puede ser menor'
+        'fecha de emisión no puede ser menor',
+        'Integrity constraint violation: 1062 Duplicate entry'
     ];
 
     // Verificar si el mensaje contiene alguno de los errores

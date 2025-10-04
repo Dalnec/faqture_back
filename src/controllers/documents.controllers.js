@@ -363,7 +363,7 @@ const updateDocument = async (req, res, next) => {
 const deleteDocument = async (req, res, next) => {
     const id = parseInt(req.params.id);
     const tenant = req.params.tenant;
-    await pool.query(`DELETE FROM ${tenant}.document where id = $1`, [id]);
+    await pool.query(`DELETE FROM ${tenant}.document where id_document=$1`, [id]);
     res.json({
         state: 'success',
         message: "DELETED"
