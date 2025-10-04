@@ -442,6 +442,7 @@ const validarMensajeError = (response) => {
         'No se encontró la URL especificada',
         'serie ingresada',
         'SQLSTATE[23000]: Integrity constraint violation:',
+        'El tipo doc. identidad Doc.trib.no.dom.sin.ruc del cliente no es válido.',
         'fecha de emisión no puede ser menor'
     ];
 
