@@ -469,6 +469,7 @@ const sendAllDocsPerCompany = async (company, docus) => {
     for (let docu of docus) {
         if (validarMensajeError(JSON.parse(docu.response_send)) === false) {
             // console.log(`Saltando error: ${docu.response_send}`);
+            num_error += 1;
             continue;
         }
         let url = `${company.url}/api/`;
