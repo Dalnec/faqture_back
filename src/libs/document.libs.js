@@ -441,6 +441,7 @@ const validarMensajeError = (response) => {
         'Invalid argument supplied for foreach()',
         'No se encontró la URL especificada',
         'serie ingresada',
+        'SQLSTATE[23000]: Integrity constraint violation:',
         'fecha de emisión no puede ser menor'
     ];
 
@@ -466,7 +467,7 @@ const sendAllDocsPerCompany = async (company, docus) => {
 
     for (let docu of docus) {
         if (validarMensajeError(JSON.parse(docu.response_send)) === false) {
-            console.log(`Saltando error: ${docu.response_send}`);
+            // console.log(`Saltando error: ${docu.response_send}`);
             continue;
         }
         let url = `${company.url}/api/`;
