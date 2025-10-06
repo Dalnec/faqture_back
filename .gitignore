@@ -4,3 +4,4 @@ faqture.xlsx
 *.gz
 .wwebjs_auth
 credencials-faqture-drive-api.json
+ssh_key/
