@@ -2,6 +2,7 @@ const mysql = require('mysql');
 const mysql2 = require('mysql2');
 const { Client } = require('ssh2');
 const sshClient = new Client();
+const fs = require('fs');
 
 require('dotenv').config()
 
@@ -10,7 +11,12 @@ const create_mysql_connection = (url) => {
     // console.log(url);
     let server = url.replace('https://', '');
     server = server.split(".", 2);
-    // let conn;
+    let tunnelConfig = {
+        host: process.env.DB_SSH_HOST,
+        port: 7236,
+        username: process.env.DB_SSH_USER,
+        password: process.env.DB_SSH_PASSWORD
+    }
     let dbServer;
     switch (server[1]) {
         case "tsifactur":
@@ -31,16 +37,28 @@ const create_mysql_connection = (url) => {
                 port: process.env.DB_FPORT
             }
             break;
+        case "pse":
+            dbServer = {
+                host: process.env.DB_PSE_HOST,
+                user: process.env.DB_PSE_USER,
+                password: process.env.DB_PSE_PASS,
+                database: "tenancy_" + server[0],
+                port: process.env.DB_PSE_PORT
+            }
+            tunnelConfig = {
+                host: process.env.DB_PSE_SSH_HOST,
+                port: process.env.DB_PSE_SSH_PORT || 22,
+                username: process.env.DB_PSE_SSH_USER,
+                privateKey: fs.readFileSync(process.env.DB_PSE_SSH_KEY_PATH)
+                // Si tu key tiene passphrase, agrega:
+                // passphrase: process.env.DB_TSI_SSH_KEY_PASSPHRASE
+            }
+            break;
         default:
             dbServer = {}
             break;
     }
-    const tunnelConfig = {
-        host: process.env.DB_SSH_HOST,
-        port: 7236,
-        username: process.env.DB_SSH_USER,
-        password: process.env.DB_SSH_PASSWORD
-    }
+
     const forwardConfig = {
         srcHost: '127.0.0.1',
         srcPort: 3306,
