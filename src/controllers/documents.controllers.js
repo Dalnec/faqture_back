@@ -4,7 +4,8 @@ const { setNewValues, setFiltersOR, setFiltersDocs } = require('../libs/function
 const { sendDoc, get_correlative_number, select_document_by_serie_number, verifyingExternalIds,
     getAllRejectedDocsAllCompanies, get_docs_month_filter, select_document_by_external_id,
     getDocGuiaTransportista, checkDispatchStatusTicket, sendDispatch, processDispatchStateN,
-    processDispatchStateY, processDispatchStateE, update_document_state } = require('../libs/document.libs');
+    processDispatchStateY, processDispatchStateE, update_document_state,
+    sendAllDocsAllCompanies } = require('../libs/document.libs');
 const { selectApiCompanyById, getCompanyByNumber, getCompanyByTenant } = require('../libs/company.libs');
 const { ApiClient } = require('../libs/api.libs');
 const { listReportDocuments } = require('../libs/connection');
@@ -383,6 +384,14 @@ const clearDocuments = async (req, res, next) => {
         res.json({ error: error.message });
         next();
     }
+};
+
+const sendallDocumentsCompanies = async (req, res, next) => {
+    await sendAllDocsAllCompanies();
+    return res.status(200).json({
+        success: true,
+        message: "Sent!",
+    })
 };
 
 const getDocumentCustomers = async (req, res, next) => {
@@ -934,5 +943,6 @@ module.exports = {
     reportContaSisCorp,
     getXMLByTenant2,
     verifyDispatchesStatusTicket,
-    nullifyDocument
+    nullifyDocument,
+    sendallDocumentsCompanies
 };

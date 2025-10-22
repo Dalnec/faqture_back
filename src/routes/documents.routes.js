@@ -8,7 +8,7 @@ const { getDocuments, getDocumentById, createDocument, updateDocument, deleteDoc
     getDocumentCustomers, getDocumentByFiltersReport, updateApiDocument, clearDocuments, createApiDocument,
     externalIdFormatNotaCredito, getXML, getXMLByTenant, getXMLByTenant2, reportDocuments, getRejected, reports,
     updateJsonFormat, verifyDocumentBySerieNumber, reportConcar, reportContaSisCorp,
-    verifyDispatchesStatusTicket, nullifyDocument } = require('../controllers/documents.controllers');
+    verifyDispatchesStatusTicket, nullifyDocument, sendallDocumentsCompanies } = require('../controllers/documents.controllers');
 const { verifyCompanyByTenant } = require('../middlewares/company.middleware');
 
 router.get('/documents/:tenant/xml/', getXMLByTenant)
@@ -77,4 +77,5 @@ router.get('/api/documents/report/accountant/:tenant', [verifyCompanyByTenant], 
 router.get('/api/documents/report/concar/:type/:tenant', [verifyCompanyByTenant], reportConcar)
 router.get('/api/documents/reports/contasiscorp/:tenant', [verifyLocalToken], reportContaSisCorp)
 
+router.post('/api/documents/send-all', sendallDocumentsCompanies)
 module.exports = router;
