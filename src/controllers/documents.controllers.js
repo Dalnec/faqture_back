@@ -386,14 +386,6 @@ const clearDocuments = async (req, res, next) => {
     }
 };
 
-const sendallDocumentsCompanies = async (req, res, next) => {
-    await sendAllDocsAllCompanies();
-    return res.status(200).json({
-        success: true,
-        message: "Sent!",
-    })
-};
-
 const getDocumentCustomers = async (req, res, next) => {
     try {
         const tenant = req.params.tenant;
@@ -944,5 +936,4 @@ module.exports = {
     getXMLByTenant2,
     verifyDispatchesStatusTicket,
     nullifyDocument,
-    sendallDocumentsCompanies
 };

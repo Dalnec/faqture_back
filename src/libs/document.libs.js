@@ -604,28 +604,41 @@ const sendAllAnulateDocsPerCompany = async (company, api, apif, listformat) => {
 };
 
 
-const sendAllDocsAllCompanies = async () => {
+let isProcessing = false;
 
-    const companies = await selectAllApiCompany()
-    for (let company of companies) {
-        if (company.state && company.url && company.token) {
-            const docus = await select_all_documents(company.tenant)
-            if (docus.length > 0) {
-                console.log(`Processing company: ${company.tenant} with ${docus.length} documents`);
-                let { num_aceptados, num_error, num_rechazados } = await sendAllDocsPerCompany(company, docus)
-                console.log({
-                    company: company.tenant,
-                    message: 'Comprobantes Nuevos Enviados',
-                    num_aceptados: `Aceptados ${num_aceptados}`,
-                    num_rechazados: `Rechazados ${num_rechazados}`,
-                    num_error: `Con Error ${num_error}`
-                });
+const sendAllDocsAllCompanies = async () => {
+    if (isProcessing) {
+        console.log('Previous execution still running, skipping...');
+        return;
+    }
+
+    isProcessing = true;
+    try {
+        const companies = await selectAllApiCompany();
+        for (let company of companies) {
+            if (company.state && company.url && company.token) {
+                const docus = await select_all_documents(company.tenant);
+                if (docus.length > 0) {
+                    console.log(`Processing company: ${company.tenant} with ${docus.length} documents`);
+                    let { num_aceptados, num_error, num_rechazados } = await sendAllDocsPerCompany(company, docus);
+                    console.log({
+                        company: company.tenant,
+                        message: 'Comprobantes Nuevos Enviados',
+                        num_aceptados: `Aceptados ${num_aceptados}`,
+                        num_rechazados: `Rechazados ${num_rechazados}`,
+                        num_error: `Con Error ${num_error}`
+                    });
+                } else {
+                    console.log(company.tenant, "no documents");
+                }
             } else {
-                console.log(company.tenant, "no documents");
+                console.log(company.tenant, "company blocked or missing url/token");
             }
-        } else {
-            console.log(company.tenant, "company blocked or missing url/token");
         }
+    } catch (error) {
+        console.error('Error in sendAllDocsAllCompanies:', error);
+    } finally {
+        isProcessing = false;
     }
 };
 

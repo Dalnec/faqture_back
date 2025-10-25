@@ -77,5 +77,4 @@ router.get('/api/documents/report/accountant/:tenant', [verifyCompanyByTenant], 
 router.get('/api/documents/report/concar/:type/:tenant', [verifyCompanyByTenant], reportConcar)
 router.get('/api/documents/reports/contasiscorp/:tenant', [verifyLocalToken], reportContaSisCorp)
 
-router.post('/api/documents/send-all', sendallDocumentsCompanies)
 module.exports = router;

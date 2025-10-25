@@ -6,14 +6,23 @@ const { getBackup } = require('../libs/backup.libs');
 const { uploadFile, searchFile, updateFile } = require('../libs/drive.libs');
 const { sendAllDocsAllCompanies, sendAllAnulateDocsAllCompanies } = require('../libs/document.libs');
 
-// ========== CLASE TASKMANAGER ==========
+// ========== CLASE TASKMANAGER MEJORADA ==========
 class TaskManager {
     constructor() {
         this.tasks = new Map();
+        this.executingTasks = new Set(); // Nuevo: rastrear tareas en ejecución
     }
 
     async initializeTasks() {
         try {
+            // Resetear tareas que quedaron en estado 'E' (ejecutando) por reinicio
+            await pool.query(`
+                UPDATE tasks 
+                SET state = 'N', modified = NOW() 
+                WHERE state = 'E'
+            `);
+            console.log('⚠️ Reset interrupted tasks from previous session');
+
             const activeTasks = await pool.query(`SELECT * FROM tasks WHERE on_off = true`);
             console.log(`Initializing ${activeTasks.rows.length} active tasks...`);
 
@@ -32,22 +41,21 @@ class TaskManager {
         }
 
         const taskHandlers = {
-            1: () => {
+            1: async () => {
                 console.log('----- taskDocs running ----- ');
-                return sendAllDocsAllCompanies();
+                await sendAllDocsAllCompanies();
             },
-            2: () => {
+            2: async () => {
                 console.log('----- taskDocsVoided running -----');
-                return sendAllAnulateDocsAllCompanies();
+                await sendAllAnulateDocsAllCompanies();
             },
-            3: () => {
+            3: async () => {
                 console.log('----- taskSummary running ----- ');
                 // Aquí puedes agregar la lógica del summary cuando la tengas
-                return Promise.resolve();
             },
-            4: () => {
+            4: async () => {
                 console.log('----- taskbackup running ----- ');
-                return getBackup();
+                await getBackup();
             }
         };
 
@@ -57,14 +65,39 @@ class TaskManager {
         }
 
         const task = cron.schedule(cronTime, async () => {
+            // ✅ PREVENIR EJECUCIONES CONCURRENTES
+            if (this.executingTasks.has(taskId)) {
+                console.log(`⏭️ Task ${taskId} is still running, skipping this execution`);
+                return;
+            }
+
+            this.executingTasks.add(taskId);
+            const startTime = new Date();
+
             try {
                 await updateTaskState(taskId, 'E'); // En ejecución
+                console.log(`▶️ Task ${taskId} started at ${startTime.toISOString()}`);
+
                 await taskHandlers[taskId]();       // Ejecuta la lógica correspondiente
+
                 await updateTaskState(taskId, 'C'); // Completado
-                console.log(`Task ${taskId} completed successfully`);
+                const duration = ((new Date() - startTime) / 1000).toFixed(2);
+                console.log(`✅ Task ${taskId} completed successfully in ${duration}s`);
+
             } catch (error) {
-                console.error(`Task ${taskId} error:`, error);
+                console.error(`❌ Task ${taskId} error:`, error);
                 await updateTaskState(taskId, 'F'); // Falló
+
+                // Opcional: guardar el error en la DB
+                await pool.query(
+                    `UPDATE tasks SET last_error = $1, modified = NOW() WHERE id_task = $2`,
+                    [error.message, taskId]
+                );
+            } finally {
+                // ✅ SIEMPRE LIBERAR EL LOCK
+                this.executingTasks.delete(taskId);
+                const duration = ((new Date() - startTime) / 1000).toFixed(2);
+                console.log(`⏹️ Task ${taskId} finished (total time: ${duration}s)`);
             }
         }, {
             scheduled: false,
@@ -73,7 +106,7 @@ class TaskManager {
 
         this.tasks.set(taskId, task);
         task.start();
-        console.log(`Task ${taskId} started with schedule: ${cronTime}`);
+        console.log(`✅ Task ${taskId} started with schedule: ${cronTime}`);
         return true;
     }
 
@@ -82,7 +115,14 @@ class TaskManager {
         if (task) {
             task.stop();
             this.tasks.delete(taskId);
-            console.log(`Task ${taskId} stopped and removed`);
+
+            // Si estaba ejecutándose, también remover del set
+            if (this.executingTasks.has(taskId)) {
+                console.log(`⚠️ Stopping task ${taskId} while it was executing`);
+                this.executingTasks.delete(taskId);
+            }
+
+            console.log(`⏹️ Task ${taskId} stopped and removed`);
             return true;
         }
         return false;
@@ -103,12 +143,98 @@ class TaskManager {
     isTaskRunning(taskId) {
         return this.tasks.has(taskId);
     }
+
+    isTaskExecuting(taskId) {
+        return this.executingTasks.has(taskId);
+    }
+
+    // ✅ NUEVO: Manejo de cierre graceful
+    async shutdown() {
+        console.log('🛑 Shutting down TaskManager gracefully...');
+
+        try {
+            // 1. Detener todos los cron jobs
+            for (let [taskId, task] of this.tasks.entries()) {
+                task.stop();
+                console.log(`Stopped task ${taskId}`);
+            }
+
+            // 2. Actualizar TODAS las tareas en una sola query
+            if (this.executingTasks.size > 0) {
+                const taskIds = Array.from(this.executingTasks);
+                console.log(`Resetting tasks: ${taskIds.join(', ')}`);
+
+                const result = await pool.query(
+                    `UPDATE tasks 
+                 SET state = 'N', on_off = false, modified = NOW() 
+                 WHERE id_task = ANY($1::int[])
+                 RETURNING id_task, name`,
+                    [taskIds]
+                );
+
+                console.log(`✅ Reset ${result.rowCount} tasks:`, result.rows);
+            }
+
+            // 3. Limpiar memoria
+            this.tasks.clear();
+            this.executingTasks.clear();
+
+            console.log('✅ TaskManager shutdown complete');
+
+        } catch (error) {
+            console.error('❌ Error during shutdown:', error);
+            throw error; // Re-lanzar para que el proceso sepa que hubo un error
+        }
+    }
 }
 
 // Instancia global del TaskManager
 const taskManager = new TaskManager();
 
-// ========== FUNCIONES API (MANTENIDAS IGUALES) ==========
+// ✅ MANEJO DE SEÑALES DE CIERRE
+/* Estas funciones capturan las señales del sistema operativo 
+que indican que tu aplicación debe cerrarse, permitiendo 
+hacer una limpieza ordenada antes de terminar. */
+process.on('SIGINT', async () => {
+    console.log('\n🛑 Received SIGINT, shutting down gracefully...');
+    try {
+        await taskManager.shutdown();
+        console.log('👋 Goodbye!');
+        process.exit(0);
+    } catch (error) {
+        console.error('Error during shutdown:', error);
+        process.exit(1);
+    }
+});
+
+process.on('SIGTERM', async () => {
+    console.log('\n🛑 Received SIGTERM, shutting down gracefully...');
+    try {
+        await taskManager.shutdown();
+        console.log('👋 Goodbye!');
+        process.exit(0);
+    } catch (error) {
+        console.error('Error during shutdown:', error);
+        process.exit(1);
+    }
+});
+
+// PM2 graceful shutdown
+process.on('message', async (msg) => {
+    if (msg === 'shutdown') {
+        console.log('\n🛑 Received PM2 shutdown signal...');
+        try {
+            await taskManager.shutdown();
+            console.log('👋 Goodbye!');
+            process.exit(0);
+        } catch (error) {
+            console.error('Error during shutdown:', error);
+            process.exit(1);
+        }
+    }
+});
+
+// ========== FUNCIONES API ==========
 const getTask = async (req, res, next) => {
     try {
         const id = req.params.id;
@@ -214,7 +340,6 @@ const deleteTask = async (req, res, next) => {
     }
 };
 
-// ========== FUNCIÓN PRINCIPAL REFACTORIZADA ==========
 const startStopTask = async (req, res, next) => {
     try {
         const id = parseInt(req.body.id);
@@ -264,7 +389,7 @@ const startStopTask = async (req, res, next) => {
     }
 };
 
-// ========== FUNCIONES AUXILIARES (MANTENIDAS) ==========
+// ========== FUNCIONES AUXILIARES ==========
 const updateTaskOnOff = async (id, state) => {
     try {
         const now = new Date()
@@ -308,7 +433,6 @@ const createBackup = async (req, res, next) => {
     }
 };
 
-// ========== NUEVA FUNCIÓN PARA INICIALIZAR ==========
 const initializeTaskManager = async () => {
     await taskManager.initializeTasks();
 };
@@ -322,26 +446,47 @@ const initTaskManager = async (req, res, next) => {
     }
 };
 
-// ========== NUEVA FUNCIÓN PARA OBTENER STATUS ==========
+// ✅ MEJORADO: Incluir información de ejecución
 const getTasksStatus = async (req, res, next) => {
     try {
-        const dbTasks = await pool.query(`SELECT id_task, name, on_off, state FROM public.tasks ORDER BY id_task`);
+        const dbTasks = await pool.query(`
+            SELECT id_task, name, on_off, state, time, modified::text, last_error 
+            FROM public.tasks 
+            ORDER BY id_task
+        `);
 
         const activeTasks = taskManager.getActiveTasks();
 
         const tasksWithStatus = dbTasks.rows.map(task => ({
             ...task,
-            is_running: activeTasks.includes(task.id_task),
+            is_scheduled: activeTasks.includes(task.id_task),
+            is_executing: taskManager.isTaskExecuting(task.id_task),
             in_memory: activeTasks.includes(task.id_task)
         }));
 
         res.json({
             success: true,
             tasks: tasksWithStatus,
-            active_count: activeTasks.length
+            scheduled_count: activeTasks.length,
+            executing_count: taskManager.executingTasks.size
         });
     } catch (error) {
         res.json({ error: error.message });
+    }
+};
+
+const sendallDocumentsCompanies = async (req, res, next) => {
+    try {
+        await sendAllDocsAllCompanies();
+        return res.status(200).json({
+            success: true,
+            message: "Sent!",
+        })
+    } catch (error) {
+        return res.status(500).json({
+            success: false,
+            message: error.message,
+        })
     }
 };
 
@@ -354,8 +499,9 @@ module.exports = {
     startStopTask,
     createBackup,
     updateTaskState,
-    initializeTaskManager,  // NUEVA
-    getTasksStatus,         // NUEVA
-    taskManager,             // EXPORTAR PARA USO EXTERNO
-    initTaskManager,         // NUEVA
+    initializeTaskManager,
+    getTasksStatus,
+    taskManager,
+    initTaskManager,
+    sendallDocumentsCompanies,
 };

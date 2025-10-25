@@ -4,7 +4,8 @@ const { Router } = require('express');
 const router = Router();
 
 const { getTask, getTasks, createTask, updateTask, deleteTask, startStopTask, createBackup,
-    destroyTask, getTasksStatus, initTaskManager
+    destroyTask, getTasksStatus, initTaskManager,
+    sendallDocumentsCompanies
 } = require('../controllers/tasks.controllers')
 
 router.get('/tasks/status', getTasksStatus);
@@ -17,5 +18,7 @@ router.post('/tasks/startstop', startStopTask)
 router.post('/tasks/createbk', createBackup)
 // router.post('/tasks/destroy', destroyTask)
 router.post('/tasks/initialize', initTaskManager);
+router.post('/tasks/send-all', sendallDocumentsCompanies)
+
 
 module.exports = router;
