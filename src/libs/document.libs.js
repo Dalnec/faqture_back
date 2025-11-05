@@ -48,7 +48,7 @@ const select_document_by_serie_number = async (tenant, serie, numero) => {
 const select_all_documents = async (tenant) => {
     try {
         if (!tenant) { return false; }
-        const docs = await pool.query(`SELECT id_document, json_format, states, type, response_send FROM ${tenant}.document WHERE states in ('N', 'X', 'M', 'S') ORDER BY id_document limit 100`);
+        const docs = await pool.query(`SELECT id_document, json_format, states, type, response_send FROM ${tenant}.document WHERE states in ('N', 'X', 'M', 'S') AND type <> '80' ORDER BY id_document limit 100`);
         if (!docs.rowCount) { return false; }
         return docs.rows;
 

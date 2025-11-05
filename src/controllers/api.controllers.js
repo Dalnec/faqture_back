@@ -16,6 +16,8 @@ const sendDocument = async (req, res, next) => {
     const docu = await select_document_by_id(req.body.id_document, company.tenant)
     if (!docu)
         res.status(405).json({ success: false, message: `Document Finding Error!` })
+    if (docu.type === '80')
+        res.status(405).json({ success: false, message: `Not Allowed!` })
 
     let result = await sendDoc(company, docu)
 
