@@ -444,76 +444,300 @@ const getXML = async (req, res, next) => {
         console.log(error);
     }
 }
+// const getXMLByTenant = async (req, res, next) => {
+//     try {
+//         // const { tenant, external_id } = req.params;
+//         const tenant = req.params.tenant;
+//         const { serie, number } = req.query;
+
+//         // if (!external_id) {
+//         //     return res.status(400).json({ success: false, message: 'External ID no encontrado' })
+//         // }
+//         if (!serie || !number) {
+//             return res.status(400).json({ success: false, message: 'Faltan parametros para la consulta' })
+//         }
+//         const company = await getCompanyByTenant(tenant)
+//         if (!company) {
+//             return res.status(400).json({ success: false, message: 'Cliente no encontrado' })
+//         }
+//         // let doc = await select_document_by_external_id(external_id, company.tenant)
+//         let doc = await select_document_by_serie_number(tenant, serie, number);
+//         if (!doc) {
+//             return res.status(400).json({ success: false, message: 'Documento no encontrado' })
+//         }
+//         let xml, filename
+//         if (!!doc.response_send) {
+//             let response_send = JSON.parse(doc.response_send)
+//             if (!response_send.success) {
+//                 const api = new ApiClient(`${company.url}/api/documents/lists/`, company.token)
+//                 const rpta = await verifyingExternalIds(company.tenant, api)
+//                 doc = await select_document_by_external_id(external_id, company.tenant)
+//             }
+//             filename = response_send.data.filename
+//             xml = response_send.links.xml
+//         } else {
+//             const result = await sendDoc(company, doc)
+//             filename = result.response_send.data.data.filename
+//             xml = result.response_send.data.links
+//         }
+
+//         const localFilePath = path.join(__dirname, `../../uploads/${filename}.xml`);
+//         const response = await axios({
+//             method: 'get',
+//             url: xml,
+//             responseType: 'stream'
+//         });
+
+//         const writer = fs.createWriteStream(localFilePath);
+//         response.data.pipe(writer);
+
+//         writer.on('finish', () => {
+//             res.download(localFilePath, function (err) {
+//                 if (err) {
+//                     console.log('Error downloading the file:', err);
+//                 } else {
+//                     console.log('File downloaded successfully');
+//                     fs.unlinkSync(localFilePath);
+//                 }
+//             });
+//         });
+
+//         writer.on('error', (err) => {
+//             console.error('Error writing the file:', err);
+//             return res.status(500).json({
+//                 message: "Could not download file. Error: " + error,
+//             });
+//         });
+//     } catch (error) {
+//         return res.status(500).json({
+//             message: "Could not download file. Error: " + error,
+//         });
+//     }
+// }
+
 const getXMLByTenant = async (req, res, next) => {
     try {
-        // const { tenant, external_id } = req.params;
         const tenant = req.params.tenant;
         const { serie, number } = req.query;
 
-        // if (!external_id) {
-        //     return res.status(400).json({ success: false, message: 'External ID no encontrado' })
-        // }
+        console.log('=== Inicio getXMLByTenant ===');
+        console.log('Tenant:', tenant);
+        console.log('Serie:', serie);
+        console.log('Number:', number);
+
+        // Validar parámetros requeridos
         if (!serie || !number) {
-            return res.status(400).json({ success: false, message: 'Faltan parametros para la consulta' })
+            return res.status(400).json({
+                success: false,
+                message: 'Faltan parametros para la consulta'
+            });
         }
-        const company = await getCompanyByTenant(tenant)
+
+        // Obtener compañía
+        const company = await getCompanyByTenant(tenant);
+        console.log('Company encontrada:', company ? 'Sí' : 'No');
+
         if (!company) {
-            return res.status(400).json({ success: false, message: 'Cliente no encontrado' })
+            return res.status(400).json({
+                success: false,
+                message: 'Cliente no encontrado'
+            });
         }
-        // let doc = await select_document_by_external_id(external_id, company.tenant)
+
+        // Buscar documento
         let doc = await select_document_by_serie_number(tenant, serie, number);
+        console.log('Documento encontrado:', doc ? 'Sí' : 'No');
+
         if (!doc) {
-            return res.status(400).json({ success: false, message: 'Documento no encontrado' })
+            return res.status(400).json({
+                success: false,
+                message: 'Documento no encontrado'
+            });
         }
-        let xml, filename
+
+        let xml, filename;
+
+        // Procesar documento según tenga o no response_send
         if (!!doc.response_send) {
-            let response_send = JSON.parse(doc.response_send)
-            if (!response_send.success) {
-                const api = new ApiClient(`${company.url}/api/documents/lists/`, company.token)
-                const rpta = await verifyingExternalIds(company.tenant, api)
-                doc = await select_document_by_external_id(external_id, company.tenant)
+            console.log('Documento tiene response_send');
+
+            let response_send;
+            try {
+                response_send = JSON.parse(doc.response_send);
+                console.log('response_send parseado:', JSON.stringify(response_send, null, 2));
+            } catch (parseError) {
+                console.error('Error parseando response_send:', parseError);
+                return res.status(500).json({
+                    success: false,
+                    message: 'Error al procesar respuesta del documento'
+                });
             }
-            filename = response_send.data.filename
-            xml = response_send.links.xml
+
+            // Validar estructura de response_send
+            if (!response_send.data || !response_send.links) {
+                console.error('Estructura de response_send inválida');
+                console.log('response_send.data:', response_send.data);
+                console.log('response_send.links:', response_send.links);
+
+                return res.status(500).json({
+                    success: false,
+                    message: 'Estructura de respuesta inválida'
+                });
+            }
+
+            if (!response_send.success) {
+                console.log('response_send.success es false, verificando external_ids');
+
+                const api = new ApiClient(`${company.url}/api/documents/lists/`, company.token);
+                const rpta = await verifyingExternalIds(company.tenant, api);
+                console.log('Resultado de verifyingExternalIds:', rpta);
+
+                // Nota: external_id no está definido en el scope actual
+                // Necesitarías obtenerlo del documento o parámetros
+                doc = await select_document_by_serie_number(tenant, serie, number);
+
+                if (!doc || !doc.response_send) {
+                    return res.status(500).json({
+                        success: false,
+                        message: 'No se pudo actualizar el documento'
+                    });
+                }
+
+                response_send = JSON.parse(doc.response_send);
+            }
+
+            filename = response_send.data.filename;
+            xml = response_send.links.xml;
+
+            console.log('Filename obtenido:', filename);
+            console.log('XML URL obtenido:', xml);
+
         } else {
-            const result = await sendDoc(company, doc)
-            filename = result.response_send.data.data.filename
-            xml = result.response_send.data.links
+            console.log('Documento NO tiene response_send, enviando documento');
+
+            const result = await sendDoc(company, doc);
+            console.log('Resultado de sendDoc:', JSON.stringify(result, null, 2));
+
+            // Validar resultado de sendDoc
+            if (!result || !result.response_send) {
+                console.error('result o result.response_send es undefined');
+                return res.status(500).json({
+                    success: false,
+                    message: 'Error al enviar documento - respuesta vacía'
+                });
+            }
+
+            if (!result.response_send.data || !result.response_send.data.data) {
+                console.error('Estructura de result.response_send inválida');
+                console.log('result.response_send.data:', result.response_send.data);
+
+                return res.status(500).json({
+                    success: false,
+                    message: 'Error al enviar documento - estructura inválida'
+                });
+            }
+
+            filename = result.response_send.data.data.filename;
+            xml = result.response_send.data.links;
+
+            console.log('Filename obtenido de sendDoc:', filename);
+            console.log('XML URL obtenido de sendDoc:', xml);
         }
 
-        const localFilePath = path.join(__dirname, `../../uploads/${filename}.xml`);
-        const response = await axios({
-            method: 'get',
-            url: xml,
-            responseType: 'stream'
-        });
+        // Validar que tenemos filename y xml
+        if (!filename) {
+            console.error('Filename no disponible');
+            return res.status(500).json({
+                success: false,
+                message: 'Nombre de archivo no disponible'
+            });
+        }
 
+        if (!xml) {
+            console.error('URL del XML no disponible');
+            return res.status(500).json({
+                success: false,
+                message: 'URL del XML no disponible'
+            });
+        }
+
+        // Descargar archivo XML
+        const localFilePath = path.join(__dirname, `../../uploads/${filename}.xml`);
+        console.log('Ruta local del archivo:', localFilePath);
+        console.log('Descargando XML desde:', xml);
+
+        let response;
+        try {
+            response = await axios({
+                method: 'get',
+                url: xml,
+                responseType: 'stream',
+                timeout: 30000
+            });
+
+            console.log('Respuesta de axios recibida');
+            console.log('Status:', response?.status);
+            console.log('Headers:', response?.headers);
+
+            if (!response || !response.data) {
+                throw new Error('Respuesta inválida del servidor XML');
+            }
+
+        } catch (axiosError) {
+            console.error('Error en axios al descargar XML:', axiosError.message);
+            console.error('Stack:', axiosError.stack);
+
+            return res.status(500).json({
+                success: false,
+                message: `Error al descargar XML: ${axiosError.message}`
+            });
+        }
+
+        // Escribir archivo localmente
         const writer = fs.createWriteStream(localFilePath);
         response.data.pipe(writer);
 
         writer.on('finish', () => {
-            res.download(localFilePath, function (err) {
+            console.log('Archivo escrito exitosamente');
+
+            res.download(localFilePath, `${filename}.xml`, function (err) {
                 if (err) {
-                    console.log('Error downloading the file:', err);
+                    console.error('Error al enviar archivo al cliente:', err);
                 } else {
-                    console.log('File downloaded successfully');
+                    console.log('Archivo descargado exitosamente por el cliente');
+                }
+
+                // Eliminar archivo temporal
+                try {
                     fs.unlinkSync(localFilePath);
+                    console.log('Archivo temporal eliminado');
+                } catch (unlinkError) {
+                    console.error('Error al eliminar archivo temporal:', unlinkError);
                 }
             });
         });
 
         writer.on('error', (err) => {
-            console.error('Error writing the file:', err);
+            console.error('Error escribiendo el archivo:', err);
+            console.error('Stack:', err.stack);
+
             return res.status(500).json({
-                message: "Could not download file. Error: " + error,
+                success: false,
+                message: `Error al escribir archivo: ${err.message}`
             });
         });
+
     } catch (error) {
+        console.error('=== Error general en getXMLByTenant ===');
+        console.error('Mensaje:', error.message);
+        console.error('Stack:', error.stack);
+
         return res.status(500).json({
-            message: "Could not download file. Error: " + error,
+            success: false,
+            message: `Error al procesar solicitud: ${error.message}`
         });
     }
-}
+};
 
 const getXMLByTenant2 = async (req, res) => {
     const { tenant, external_id } = req.params;
