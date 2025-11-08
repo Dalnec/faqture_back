@@ -636,7 +636,7 @@ const getXMLByTenant = async (req, res, next) => {
             }
 
             filename = result.data.filename;
-            xml = result.links;
+            xml = result.links.xml;
 
             console.log('Filename obtenido de sendDoc:', filename);
             console.log('XML URL obtenido de sendDoc:', xml);
