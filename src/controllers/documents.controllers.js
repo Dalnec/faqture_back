@@ -631,12 +631,12 @@ const getXMLByTenant = async (req, res, next) => {
                 console.error('Estructura de result.data inválida');
                 return res.status(500).json({
                     success: false,
-                    message: 'Error al enviar documento - estructura inválida'
+                    message: 'Error al enviar intentar documento - estructura inválida'
                 });
             }
 
             filename = result.data.filename;
-            xml = result.data.links;
+            xml = result.links;
 
             console.log('Filename obtenido de sendDoc:', filename);
             console.log('XML URL obtenido de sendDoc:', xml);
