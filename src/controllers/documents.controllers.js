@@ -619,18 +619,16 @@ const getXMLByTenant = async (req, res, next) => {
             console.log('Resultado de sendDoc:', JSON.stringify(result, null, 2));
 
             // Validar resultado de sendDoc
-            if (!result || !result.response_send) {
-                console.error('result o result.response_send es undefined');
+            if (!result) {
+                console.error('result es undefined');
                 return res.status(500).json({
                     success: false,
                     message: 'Error al enviar documento - respuesta vacía'
                 });
             }
 
-            if (!result.response_send.data || !result.response_send.data.data) {
-                console.error('Estructura de result.response_send inválida');
-                console.log('result.response_send.data:', result.response_send.data);
-
+            if (!result.data) {
+                console.error('Estructura de result.data inválida');
                 return res.status(500).json({
                     success: false,
                     message: 'Error al enviar documento - estructura inválida'
