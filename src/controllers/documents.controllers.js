@@ -444,76 +444,7 @@ const getXML = async (req, res, next) => {
         console.log(error);
     }
 }
-// const getXMLByTenant = async (req, res, next) => {
-//     try {
-//         // const { tenant, external_id } = req.params;
-//         const tenant = req.params.tenant;
-//         const { serie, number } = req.query;
 
-//         // if (!external_id) {
-//         //     return res.status(400).json({ success: false, message: 'External ID no encontrado' })
-//         // }
-//         if (!serie || !number) {
-//             return res.status(400).json({ success: false, message: 'Faltan parametros para la consulta' })
-//         }
-//         const company = await getCompanyByTenant(tenant)
-//         if (!company) {
-//             return res.status(400).json({ success: false, message: 'Cliente no encontrado' })
-//         }
-//         // let doc = await select_document_by_external_id(external_id, company.tenant)
-//         let doc = await select_document_by_serie_number(tenant, serie, number);
-//         if (!doc) {
-//             return res.status(400).json({ success: false, message: 'Documento no encontrado' })
-//         }
-//         let xml, filename
-//         if (!!doc.response_send) {
-//             let response_send = JSON.parse(doc.response_send)
-//             if (!response_send.success) {
-//                 const api = new ApiClient(`${company.url}/api/documents/lists/`, company.token)
-//                 const rpta = await verifyingExternalIds(company.tenant, api)
-//                 doc = await select_document_by_external_id(external_id, company.tenant)
-//             }
-//             filename = response_send.data.filename
-//             xml = response_send.links.xml
-//         } else {
-//             const result = await sendDoc(company, doc)
-//             filename = result.response_send.data.data.filename
-//             xml = result.response_send.data.links
-//         }
-
-//         const localFilePath = path.join(__dirname, `../../uploads/${filename}.xml`);
-//         const response = await axios({
-//             method: 'get',
-//             url: xml,
-//             responseType: 'stream'
-//         });
-
-//         const writer = fs.createWriteStream(localFilePath);
-//         response.data.pipe(writer);
-
-//         writer.on('finish', () => {
-//             res.download(localFilePath, function (err) {
-//                 if (err) {
-//                     console.log('Error downloading the file:', err);
-//                 } else {
-//                     console.log('File downloaded successfully');
-//                     fs.unlinkSync(localFilePath);
-//                 }
-//             });
-//         });
-
-//         writer.on('error', (err) => {
-//             console.error('Error writing the file:', err);
-//             return res.status(500).json({
-//                 message: "Could not download file. Error: " + error,
-//             });
-//         });
-//     } catch (error) {
-//         return res.status(500).json({
-//             message: "Could not download file. Error: " + error,
-//         });
-//     }
-// }
 
 const getXMLByTenant = async (req, res, next) => {
     try {
@@ -631,7 +562,7 @@ const getXMLByTenant = async (req, res, next) => {
                 console.error('Estructura de result.data inválida');
                 return res.status(500).json({
                     success: false,
-                    message: 'Error al enviar intentar documento - estructura inválida'
+                    message: 'Error al intentar enviar documento - estructura recibidainválida'
                 });
             }
 
@@ -673,9 +604,9 @@ const getXMLByTenant = async (req, res, next) => {
                 timeout: 30000
             });
 
-            console.log('Respuesta de axios recibida');
-            console.log('Status:', response?.status);
-            console.log('Headers:', response?.headers);
+            // console.log('Respuesta de axios recibida');
+            // console.log('Status:', response?.status);
+            // console.log('Headers:', response?.headers);
 
             if (!response || !response.data) {
                 throw new Error('Respuesta inválida del servidor XML');
