@@ -651,8 +651,8 @@ const sendAllAnulateDocsAllCompanies = async () => {
         const listformat = await formatAnulatePerCompany(company.tenant)
         if (listformat.length > 0) {
             //update state in API
-            const api_doc = await update_doc_api(ext_id, company.url)
-            console.log(api_doc);
+            const api_doc = await update_doc_api(null, company.url)
+            console.log({ api_doc });
             // for (let format of listformat) {
             //     let ext_id = JSON.parse(format).documentos[0].external_id
             // }

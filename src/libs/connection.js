@@ -92,7 +92,7 @@ const create_mysql_connection = (url) => {
     return SSHConnection;
 };
 
-const update_doc_api = async (ext_id, url) => {
+const update_doc_api = async (ext_id = null, url) => {
     let query;
     const conn = await create_mysql_connection(url)
     if (ext_id) {
