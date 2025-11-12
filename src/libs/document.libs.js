@@ -3,6 +3,7 @@ const { ApiClient } = require('../libs/api.libs');
 const { adaptGuiaTransportista } = require('../models/apiSunat/adaptGuiaTransportista');
 const { ApiSunat } = require('./apiApiSunat.libs');
 const { selectAllApiCompany } = require('./company.libs');
+const { update_doc_api } = require('./connection');
 // const limit = require('p-limit');
 // const limiter = limit(10);
 
@@ -649,14 +650,12 @@ const sendAllAnulateDocsAllCompanies = async () => {
     for (let company of companies) {
         const listformat = await formatAnulatePerCompany(company.tenant)
         if (listformat.length > 0) {
-            for (let format of listformat) {
-                let ext_id = JSON.parse(format).documentos[0].external_id
-                //update state in API
-                const api_doc = await update_doc_api(ext_id, company.url)
-
-                if (api_doc)
-                    error++
-            }
+            //update state in API
+            const api_doc = await update_doc_api(ext_id, company.url)
+            console.log(api_doc);
+            // for (let format of listformat) {
+            //     let ext_id = JSON.parse(format).documentos[0].external_id
+            // }
             const api = new ApiClient(`${company.url}/api/summaries`, company.token)
             const apif = new ApiClient(`${company.url}/api/voided`, company.token)
 
