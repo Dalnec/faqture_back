@@ -234,14 +234,21 @@ const formatAnulatePerCompany = async (tenant) => {
         if (!tenant) { return false; }
 
         const docs = await select_all_documents_to_anulate(tenant)
-        console.log({ docs });
         if (docs == false || docs.length <= 0) { return []; }
 
         let listformat = [];
 
         for (let doc of docs) {
             let docu = JSON.parse(doc.json_format);
+
+            // validar si response_send es null (se debe realizar el envio?
+            // o aplicar verificar para obtener el external_id)
+            if (doc.response_send == null) {
+                continue;
+            }
+
             let res = JSON.parse(doc.response_send);
+
             let format = {
                 id_document: doc.id_document,
                 fecha_de_emision_de_documentos: docu.fecha_de_emision,
