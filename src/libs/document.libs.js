@@ -234,7 +234,8 @@ const formatAnulatePerCompany = async (tenant) => {
         if (!tenant) { return false; }
 
         const docs = await select_all_documents_to_anulate(tenant)
-        if (docs.length <= 0) { return false; }
+        console.log({ docs });
+        if (docs == false || docs.length <= 0) { return []; }
 
         let listformat = [];
 
