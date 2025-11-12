@@ -607,7 +607,6 @@ const sendAllAnulateDocsPerCompany = async (company, api, apif, listformat) => {
 
 
 let isProcessing = false;
-
 const sendAllDocsAllCompanies = async () => {
     if (isProcessing) {
         console.log('Previous execution still running, skipping...');
@@ -644,32 +643,44 @@ const sendAllDocsAllCompanies = async () => {
     }
 };
 
-
+let isProcessingNullify = false;
 const sendAllAnulateDocsAllCompanies = async () => {
-    let error = 0;
-    const companies = await selectAllApiCompany()
-    for (let company of companies) {
-        const listformat = await formatAnulatePerCompany(company.tenant)
-        if (listformat.length > 0) {
-            //update state in API
-            const api_doc = await update_doc_api(null, company.url)
-            console.log({ api_doc });
-            // for (let format of listformat) {
-            //     let ext_id = JSON.parse(format).documentos[0].external_id
-            // }
-            const api = new ApiClient(`${company.url}/api/summaries`, company.token)
-            const apif = new ApiClient(`${company.url}/api/voided`, company.token)
+    if (isProcessingNullify) {
+        console.log('Nullify Previous execution still running, skipping...');
+        return;
+    }
 
-            const { num_anulados, num_error } = await sendAllAnulateDocsPerCompany(company, api, apif, listformat)
+    isProcessingNullify = true;
+    try {
+        let error = 0;
+        const companies = await selectAllApiCompany()
+        for (let company of companies) {
+            const listformat = await formatAnulatePerCompany(company.tenant)
+            if (listformat.length > 0) {
+                //update state in API
+                const api_doc = await update_doc_api(null, company.url)
+                console.log({ api_doc });
+                // for (let format of listformat) {
+                //     let ext_id = JSON.parse(format).documentos[0].external_id
+                // }
+                const api = new ApiClient(`${company.url}/api/summaries`, company.token)
+                const apif = new ApiClient(`${company.url}/api/voided`, company.token)
 
-            console.log({
-                success: true,
-                message: 'Comprobantes Enviados Anulados',
-                num_anulados: `Anulados ${num_anulados}`,
-                num_error: `Con Error ${num_error}`
-            });
+                const { num_anulados, num_error } = await sendAllAnulateDocsPerCompany(company, api, apif, listformat)
+
+                console.log({
+                    success: true,
+                    message: 'Comprobantes Enviados Anulados',
+                    num_anulados: `Anulados ${num_anulados}`,
+                    num_error: `Con Error ${num_error}`
+                });
+            }
+            console.log(company.tenant, "No documents");
         }
-        console.log(company.tenant, "No documents");
+    } catch (error) {
+        console.error('Error in sendAllAnulateDocsAllCompanies:', error);
+    } finally {
+        isProcessingNullify = false;
     }
 };
 
