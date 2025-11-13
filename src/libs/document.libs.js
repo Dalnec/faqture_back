@@ -241,24 +241,34 @@ const formatAnulatePerCompany = async (tenant) => {
         for (let doc of docs) {
             let docu = JSON.parse(doc.json_format);
 
-            // validar si response_send es null (se debe realizar el envio?
-            // o aplicar verificar para obtener el external_id)
-            if (doc.response_send == null) {
-                console.log('response_send es null');
+            // Validar si response_send es null o vacío
+            if (!doc.response_send) {
+                console.log('response_send es null o vacío');
                 continue;
             }
 
-            let res = JSON.parse(doc.response_send);
-            if (!res.data.external_id) {
-                console.log('external_id no encontrado');
+            let res;
+            try {
+                res = JSON.parse(doc.response_send);
+            } catch (parseError) {
+                console.log('Error al parsear response_send:', parseError);
+                continue;
+            }
+
+            // Validar estructura completa antes de acceder a external_id
+            if (!res || !res.data || !res.data.external_id) {
+                console.log('external_id no encontrado - estructura inválida:', {
+                    hasRes: !!res,
+                    hasData: !!(res && res.data),
+                    hasExternalId: !!(res && res.data && res.data.external_id)
+                });
                 continue;
             }
 
             let format = {
                 id_document: doc.id_document,
                 fecha_de_emision_de_documentos: docu.fecha_de_emision,
-                ...((doc.type == '03') && { codigo_tipo_proceso: '3' }),// codigo_tipo_proceso: '3',
-                // codigo_tipo_proceso: doc.type=='03' ? '3' : '1',
+                ...((doc.type == '03') && { codigo_tipo_proceso: '3' }),
                 documentos: [
                     {
                         external_id: res.data.external_id,
@@ -272,7 +282,7 @@ const formatAnulatePerCompany = async (tenant) => {
         return listformat;
 
     } catch (error) {
-        console.log(error);
+        console.log('Error en formatAnulatePerCompany:', error);
         return false;
     }
 }
