@@ -244,10 +244,15 @@ const formatAnulatePerCompany = async (tenant) => {
             // validar si response_send es null (se debe realizar el envio?
             // o aplicar verificar para obtener el external_id)
             if (doc.response_send == null) {
+                console.log('response_send es null');
                 continue;
             }
 
             let res = JSON.parse(doc.response_send);
+            if (!res.data.external_id) {
+                console.log('external_id no encontrado');
+                continue;
+            }
 
             let format = {
                 id_document: doc.id_document,
@@ -664,12 +669,7 @@ const sendAllAnulateDocsAllCompanies = async () => {
         for (let company of companies) {
             const listformat = await formatAnulatePerCompany(company.tenant)
             if (listformat.length > 0) {
-                //update state in API
                 const api_doc = await update_doc_api(null, company.url)
-                console.log({ api_doc });
-                // for (let format of listformat) {
-                //     let ext_id = JSON.parse(format).documentos[0].external_id
-                // }
                 const api = new ApiClient(`${company.url}/api/summaries`, company.token)
                 const apif = new ApiClient(`${company.url}/api/voided`, company.token)
 

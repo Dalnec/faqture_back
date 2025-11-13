@@ -168,3 +168,26 @@ SELECT zenda_url,
     zenda_token
 FROM public.company
 WHERE zenda_token IS NOT NULL;
+-- Update states to 'K' for documents of type '80' in all schemas
+DO $$
+DECLARE
+    f RECORD;
+BEGIN
+    FOR f IN
+        SELECT nspname
+        FROM pg_namespace n
+        WHERE nspname NOT LIKE 'pg_%'
+          AND nspname <> 'information_schema'
+          AND nspname <> 'public'
+    LOOP
+        RAISE NOTICE 'Actualizando schema: %', f.nspname;
+
+        EXECUTE format(
+            'UPDATE %I.document
+             SET states = ''K''
+             WHERE type = ''80'';',
+            f.nspname
+        );
+    END LOOP;
+END;
+$$ LANGUAGE plpgsql;
