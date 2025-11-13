@@ -132,6 +132,7 @@ const getUserId = async (req, res, next) => {
 const updateUser = async (req, res, next) => {
     try {
         const id = parseInt(req.params.id);
+        delete req.body.modified;
         const newData = setNewValues(req.body)
         const now = new Date()
         const response = await pool.query(`UPDATE public.user SET ${newData}, modified=$1 WHERE id_user = $2`, [now, id]);
