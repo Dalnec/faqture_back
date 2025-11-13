@@ -103,6 +103,8 @@ const createDocument = async (req, res, next) => {
         const now = new Date()
         const date = `${fecha_de_emision} ${hora_de_emision}`
         const external_id = nanoid()
+        // SI es estado 'K' no declarar, es una nota de venta
+        let states = codigo_tipo_documento === '80' ? 'K' : 'N';
 
         if (codigo_tipo_documento !== '31') {
             const { datos_del_cliente_o_receptor, totales } = document
@@ -110,13 +112,13 @@ const createDocument = async (req, res, next) => {
             values = [now, now, date, id_venta, codigo_tipo_documento, serie_documento,
                 numero_documento, datos_del_cliente_o_receptor.numero_documento,
                 datos_del_cliente_o_receptor.apellidos_y_nombres_o_razon_social,
-                total_venta, 'N', JSON.stringify(strdocument, null, 4), company, external_id]
+                total_venta, states, JSON.stringify(strdocument, null, 4), company, external_id]
         } else {
             const { datos_remitente } = document
             values = [now, now, date, id_venta, codigo_tipo_documento, serie_documento,
                 numero_documento, datos_remitente.numero_documento,
                 datos_remitente.apellidos_y_nombres_o_razon_social,
-                0, 'N', JSON.stringify(strdocument, null, 4), company, external_id]
+                0, states, JSON.stringify(strdocument, null, 4), company, external_id]
         }
         response = await pool.query(
             `INSERT INTO ${tenant}.document(created, modified, date, cod_sale, type, serie, numero, 
