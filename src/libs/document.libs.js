@@ -627,7 +627,7 @@ const sendAllAnulateDocsPerCompany = async (company, api, apif, listformat) => {
     return { num_anulados, num_error }
 };
 
-
+// Used by tasks
 let isProcessing = false;
 const sendAllDocsAllCompanies = async () => {
     if (isProcessing) {
@@ -665,6 +665,7 @@ const sendAllDocsAllCompanies = async () => {
     }
 };
 
+// Used by tasks
 let isProcessingNullify = false;
 const sendAllAnulateDocsAllCompanies = async () => {
     if (isProcessingNullify) {
@@ -701,21 +702,41 @@ const sendAllAnulateDocsAllCompanies = async () => {
     }
 };
 
-// const getAllRejectedDocsAllCompanies = async () => {
+// Used by tasks
+let isProcessingNullifyConsult = false;
+const consultAllAnulateDocsAllCompanies = async () => {
+    if (isProcessingNullifyConsult) {
+        console.log('Consulting Previous execution still running, skipping...');
+        return;
+    }
 
-//     const schemas = await selectAllApiCompany()
-//     const queries = schemas.map(async schema => {
-//         const { rows } = await pool.query(`SELECT id_document, TO_CHAR(date::DATE, 'yyyy-mm-dd') AS date, cod_sale, type, serie, numero, 
-//         customer_number, customer, amount, states, json_format, response_send, response_anulate, id_company, external_id FROM ${schema.tenant}.document WHERE verified IS NOT TRUE AND  states = 'R';`)
-//         return {
-//             ...schema,
-//             rows
-//         }
-//     });
-//     return await Promise.all(queries)
-//         .then(values => values.filter(v => v.rows.length > 0))
-//     // .then(values => values.map(v => ({ count: v.rows.length, ...v })));
-// };
+    isProcessingNullifyConsult = true;
+    try {
+        const companies = await selectAllApiCompany()
+        for (let company of companies) {
+            const docs = await select_all_documents_to_consult_void(company.tenant)
+            if (!docs) {
+                console.log('No nullified documents to consult!')
+                continue;
+            }
+            const { num_anulados, num_error, num_error_updating } = await sendAllConsultVoidPerCompany(company, docs)
+
+            console.success({
+                success: true,
+                message: 'Anulaciones Consultadas',
+                num_anulados: `Consultados ${num_anulados}`,
+                num_error: `Con error ${num_error}`,
+                num_error_updating: `No actualizado en la BD. ${num_error_updating}`,
+            });
+        }
+    } catch (error) {
+        console.error('Error in sendAllAnulateDocsAllCompanies:', error);
+    } finally {
+        isProcessingNullifyConsult = false;
+    }
+};
+
+
 const getAllRejectedDocsAllCompanies = async () => {
     try {
         const schemas = await selectAllApiCompany();
@@ -879,4 +900,5 @@ module.exports = {
     processDispatchStateN,
     processDispatchStateY,
     processDispatchStateE,
+    consultAllAnulateDocsAllCompanies,
 };

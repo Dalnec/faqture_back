@@ -4,7 +4,7 @@ const fs = require('fs');
 const { setNewValues } = require('../libs/functions')
 const { getBackup } = require('../libs/backup.libs');
 const { uploadFile, searchFile, updateFile } = require('../libs/drive.libs');
-const { sendAllDocsAllCompanies, sendAllAnulateDocsAllCompanies } = require('../libs/document.libs');
+const { sendAllDocsAllCompanies, sendAllAnulateDocsAllCompanies, consultAllAnulateDocsAllCompanies } = require('../libs/document.libs');
 
 // ========== CLASE TASKMANAGER MEJORADA ==========
 class TaskManager {
@@ -51,7 +51,7 @@ class TaskManager {
             },
             3: async () => {
                 console.log('----- taskSummary running ----- ');
-                // Aquí puedes agregar la lógica del summary cuando la tengas
+                await consultAllAnulateDocsAllCompanies();
             },
             4: async () => {
                 console.log('----- taskbackup running ----- ');
