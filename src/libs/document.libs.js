@@ -721,7 +721,7 @@ const consultAllAnulateDocsAllCompanies = async () => {
             }
             const { num_anulados, num_error, num_error_updating } = await sendAllConsultVoidPerCompany(company, docs)
 
-            console.success({
+            console.log({
                 success: true,
                 message: 'Anulaciones Consultadas',
                 num_anulados: `Consultados ${num_anulados}`,

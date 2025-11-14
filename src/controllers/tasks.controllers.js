@@ -475,6 +475,7 @@ const getTasksStatus = async (req, res, next) => {
     }
 };
 
+// boton de pruebas
 const sendallDocumentsCompanies = async (req, res, next) => {
     try {
         await sendAllDocsAllCompanies();
