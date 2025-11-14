@@ -714,15 +714,16 @@ const consultAllAnulateDocsAllCompanies = async () => {
     try {
         const companies = await selectAllApiCompany()
         for (let company of companies) {
+            console.log(`Consulting company: ${company.tenant}`)
             const docs = await select_all_documents_to_consult_void(company.tenant)
             if (!docs) {
-                console.log('No nullified documents to consult!')
+                console.log(`No nullified documents to consult!`)
                 continue;
             }
             const { num_anulados, num_error, num_error_updating } = await sendAllConsultVoidPerCompany(company, docs)
 
             console.log({
-                success: true,
+                company: company.tenant,
                 message: 'Anulaciones Consultadas',
                 num_anulados: `Consultados ${num_anulados}`,
                 num_error: `Con error ${num_error}`,
