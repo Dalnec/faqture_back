@@ -578,10 +578,14 @@ const getXMLByTenant = async (req, res, next) => {
         // Validar que tenemos filename y xml
         if (!filename) {
             console.error('Filename no disponible');
-            return res.status(500).json({
-                success: false,
-                message: 'Nombre de archivo no disponible'
-            });
+            if (!xml) {
+              return res.status(500).json({
+                  success: false,
+                  message: 'Nombre de archivo no disponible'
+              });
+            } else {
+              filename = `${company.company_number}-${doc.type}-${doc.serie}-${doc.numero}`
+            }
         }
 
         if (!xml) {
