@@ -833,6 +833,8 @@ const verifyingExternalIds = async (tenant, api) => {
                     success: true,
                     data: {
                         number: element.number,
+                        // si existe 'filename' lo agrega, en caso contrario no lo agrega
+                        filename: element.filename ? element.filename : null,
                         external_id: element.external_id,
                         state_type_id: element.state_type_id,
                         state_type_description: element.state_type_description,
