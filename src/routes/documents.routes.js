@@ -8,7 +8,7 @@ const { getDocuments, getDocumentById, createDocument, updateDocument, deleteDoc
     getDocumentCustomers, getDocumentByFiltersReport, updateApiDocument, clearDocuments, createApiDocument,
     externalIdFormatNotaCredito, getXML, getXMLByTenant, getXMLByTenant2, reportDocuments, getRejected, reports,
     updateJsonFormat, verifyDocumentBySerieNumber, reportConcar, reportContaSisCorp,
-    verifyDispatchesStatusTicket, nullifyDocument, sendallDocumentsCompanies } = require('../controllers/documents.controllers');
+    verifyDispatchesStatusTicket, nullifyDocument, sendallDocumentsCompanies, verifyDocumentsRangeSunat } = require('../controllers/documents.controllers');
 const { verifyCompanyByTenant } = require('../middlewares/company.middleware');
 
 router.get('/documents/:tenant/xml/', getXMLByTenant)
@@ -63,6 +63,45 @@ router.post('/documents/:tenant/dispatch/status-ticket', verifyDispatchesStatusT
  */
 
 router.post('/documents/:tenant/verify', verifyLocalToken, verifyDocumentBySerieNumber)
+
+/**
+ * @swagger
+ * /documents/{tenant}/verify-range:
+ *   post:
+ *     summary: Consulta SUNAT para un rango de comprobantes
+ *     security:
+ *       - BearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: tenant
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: Tenant de la empresa
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               serie:
+ *                 type: string
+ *                 example: "F001"
+ *               numero_inicio:
+ *                 type: integer
+ *                 example: 1
+ *               numero_fin:
+ *                 type: integer
+ *                 example: 20
+ *               codigo_tipo_documento:
+ *                 type: string
+ *                 example: "01"
+ *     responses:
+ *       200:
+ *         description: Rango validado correctamente
+ */
+router.post('/documents/:tenant/verify-range', verifyLocalToken, verifyDocumentsRangeSunat)
 // Pinche Zendita
 router.get('/api/documents/:tenant', verifyLocalToken, getDocumentByFilters)
 router.get('/api/documents/report/:tenant', getDocumentByFiltersReport)

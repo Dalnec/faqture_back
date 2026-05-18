@@ -10,6 +10,15 @@ const { selectApiCompanyById, getCompanyByNumber, getCompanyByTenant } = require
 const { ApiClient } = require('../libs/api.libs');
 const { listReportDocuments } = require('../libs/connection');
 const { ApiZenda } = require('../libs/apiZenda.libs');
+const {
+    SUNAT_STATUS_LABELS,
+    translateSunatStatus,
+    translateSystemStatus,
+    getEnvironmentLabel,
+    formatDateForSunat,
+    formatDateISO,
+    validateVoucherOnSunat,
+} = require('../libs/sunatValidation.libs');
 const nanoid = customAlphabet('1234567890abcdef', 20)
 
 const fs = require('fs');
@@ -34,7 +43,7 @@ const getDocumentByFiltersReport = async (req, res, next) => {
         delete filters.page
         delete filters.itemsPerPage
         filters = setFiltersDocs(filters)
-        const response = await pool.query(`SELECT id_document, TO_CHAR(date::DATE, 'yyyy-mm-dd') AS date, cod_sale, type, serie, numero, 
+        const response = await pool.query(`SELECT id_document, TO_CHAR(date::DATE, 'yyyy-mm-dd') AS date, cod_sale, type, serie, numero,
         customer_number, customer, amount, states, json_format, response_send, response_anulate, id_company, external_id FROM ${tenant}.document ${filters} ORDER BY id_document DESC`);
 
         res.json({
@@ -54,7 +63,7 @@ const getDocumentByFilters = async (req, res, next) => {
         delete filters.page
         delete filters.itemsPerPage
         filters = setFiltersDocs(filters)
-        const response = await pool.query(`SELECT id_document, TO_CHAR(date::DATE, 'yyyy-mm-dd') AS date, cod_sale, type, serie, numero, 
+        const response = await pool.query(`SELECT id_document, TO_CHAR(date::DATE, 'yyyy-mm-dd') AS date, cod_sale, type, serie, numero,
         customer_number, customer, amount, states, json_format, response_send, response_anulate, id_company, external_id FROM ${tenant}.document ${filters} ORDER BY id_document DESC
         LIMIT ${itemsPerPage} OFFSET ${(page - 1) * itemsPerPage}`);
 
@@ -121,8 +130,8 @@ const createDocument = async (req, res, next) => {
                 0, states, JSON.stringify(strdocument, null, 4), company, external_id]
         }
         response = await pool.query(
-            `INSERT INTO ${tenant}.document(created, modified, date, cod_sale, type, serie, numero, 
-                customer_number, customer, amount, states, json_format, id_company, external_id) 
+            `INSERT INTO ${tenant}.document(created, modified, date, cod_sale, type, serie, numero,
+                customer_number, customer, amount, states, json_format, id_company, external_id)
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14 ) RETURNING *`, values
         );
 
@@ -173,8 +182,8 @@ const createApiDocument = async (req, res, next) => {
         const external_id = nanoid()
 
         const response = await pool.query(
-            `INSERT INTO ${tenant}.document(created, modified, date, cod_sale, type, serie, numero, 
-                customer_number, customer, amount, states, json_format, id_company, external_id) 
+            `INSERT INTO ${tenant}.document(created, modified, date, cod_sale, type, serie, numero,
+                customer_number, customer, amount, states, json_format, id_company, external_id)
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14 ) RETURNING *`,
             [now, now, date, id_venta, codigo_tipo_documento, serie_documento,
                 numero, datos_del_cliente_o_receptor.numero_documento,
@@ -1070,6 +1079,150 @@ const verifyDispatchesStatusTicket = async (req, res, next) => {
     }
 };
 
+const verifyDocumentsRangeSunat = async (req, res, next) => {
+    try {
+        const tenant = req.params.tenant;
+        const { serie, numero_inicio, numero_fin, codigo_tipo_documento } = req.body;
+
+        if (!serie || numero_inicio === undefined || numero_fin === undefined) {
+            return res.status(400).json({
+                success: false,
+                message: 'Faltan campos requeridos: serie, numero_inicio, numero_fin',
+            });
+        }
+
+        const start = Number(numero_inicio);
+        const end = Number(numero_fin);
+        if (!Number.isInteger(start) || !Number.isInteger(end)) {
+            return res.status(400).json({
+                success: false,
+                message: 'numero_inicio y numero_fin deben ser enteros',
+            });
+        }
+
+        if (end < start) {
+            return res.status(400).json({
+                success: false,
+                message: 'numero_fin no puede ser menor a numero_inicio',
+            });
+        }
+
+        const maxRange = 500;
+        if (end - start + 1 > maxRange) {
+            return res.status(400).json({
+                success: false,
+                message: `Rango maximo permitido: ${maxRange}`,
+            });
+        }
+
+        const company = await getCompanyByTenant(tenant);
+        if (!company) {
+            return res.status(404).json({
+                success: false,
+                message: 'Cliente no encontrado',
+            });
+        }
+
+        const params = [serie, start, end];
+        let query = `SELECT id_document, date, type, serie, numero, customer, amount, states
+        FROM ${tenant}.document
+        WHERE serie = $1 AND numero >= $2 AND numero <= $3`;
+
+        if (codigo_tipo_documento) {
+            params.push(String(codigo_tipo_documento));
+            query += ` AND type = $${params.length}`;
+        }
+
+        query += ' ORDER BY numero ASC';
+
+        const docsResult = await pool.query(query, params);
+        const docs = docsResult.rows || [];
+
+        if (!docs.length) {
+            return res.status(200).json({
+                success: true,
+                timestamp: new Date().toISOString(),
+                summary: {
+                    total_processed: 0,
+                    total_errors: 0,
+                    total_accepted: 0,
+                },
+                results: [],
+            });
+        }
+
+        const results = [];
+        let totalErrors = 0;
+        let totalAccepted = 0;
+
+        for (const doc of docs) {
+            const normalized = {
+                environment: getEnvironmentLabel(),
+                document: `${doc.serie}-${String(doc.numero).padStart(4, '0')}`,
+                issue_date: formatDateISO(doc.date),
+                customer: doc.customer,
+                code: doc.type,
+                system_status: translateSystemStatus(doc.states),
+                sunat_status: SUNAT_STATUS_LABELS.PENDING,
+            };
+
+            try {
+                if (!doc.type || !doc.date) {
+                    throw new Error('Comprobante sin tipo o fecha para validar en SUNAT');
+                }
+
+                const fechaEmision = formatDateForSunat(doc.date);
+                const sunatResponse = await validateVoucherOnSunat({
+                    ruc: company.company_number,
+                    codigoComp: doc.type,
+                    serie: doc.serie,
+                    numero: doc.numero,
+                    fechaEmision,
+                    monto: doc.amount,
+                });
+
+                const estadoCp = sunatResponse?.data?.estadoCp;
+                normalized.sunat_status = translateSunatStatus(estadoCp);
+
+                if (normalized.sunat_status === SUNAT_STATUS_LABELS.ACCEPTED) {
+                    totalAccepted += 1;
+                }
+
+                normalized.sunat_response = {
+                    success: !!sunatResponse?.success,
+                    message: sunatResponse?.message || null,
+                    data: sunatResponse?.data || null,
+                };
+            } catch (error) {
+                totalErrors += 1;
+                normalized.sunat_status = SUNAT_STATUS_LABELS.ERROR;
+                normalized.error = error.message;
+                if (error.details) {
+                    normalized.error_details = error.details;
+                }
+            }
+
+            results.push(normalized);
+        }
+
+        return res.status(200).json({
+            success: totalErrors === 0,
+            timestamp: new Date().toISOString(),
+            summary: {
+                total_processed: docs.length,
+                total_errors: totalErrors,
+                total_accepted: totalAccepted,
+            },
+            results,
+        });
+    } catch (error) {
+        return res.status(500).json({
+            success: false,
+            message: error.message,
+        });
+    }
+};
+
 module.exports = {
     getDocuments,
     createDocument,
@@ -1095,4 +1248,5 @@ module.exports = {
     getXMLByTenant2,
     verifyDispatchesStatusTicket,
     nullifyDocument,
+    verifyDocumentsRangeSunat,
 };
