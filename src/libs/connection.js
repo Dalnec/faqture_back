@@ -1,14 +1,12 @@
-const mysql = require('mysql');
 const mysql2 = require('mysql2');
 const { Client } = require('ssh2');
-const sshClient = new Client();
 const fs = require('fs');
+const { notifyError } = require('./logger');
 
 require('dotenv').config()
 
 
 const create_mysql_connection = (url) => {
-    // console.log(url);
     let server = url.replace('https://', '');
     server = server.split(".", 2);
     let tunnelConfig = {
@@ -25,7 +23,7 @@ const create_mysql_connection = (url) => {
                 user: process.env.DB_TUSER,
                 password: process.env.DB_TPASS,
                 database: "tsifactur_" + server[0],
-                port: process.env.DB_TPORT
+                port: parseInt(process.env.DB_TPORT, 10)
             }
             break;
         case "faqture":
@@ -34,7 +32,7 @@ const create_mysql_connection = (url) => {
                 user: process.env.DB_FUSER,
                 password: process.env.DB_FPASS,
                 database: "faqture_" + server[0],
-                port: process.env.DB_FPORT
+                port: parseInt(process.env.DB_FPORT, 10)
             }
             break;
         case "pse":
@@ -43,20 +41,25 @@ const create_mysql_connection = (url) => {
                 user: process.env.DB_PSE_USER,
                 password: process.env.DB_PSE_PASS,
                 database: "tenancy_" + server[0],
-                port: process.env.DB_PSE_PORT
+                port: parseInt(process.env.DB_PSE_PORT, 10)
             }
             tunnelConfig = {
                 host: process.env.DB_PSE_SSH_HOST,
-                port: process.env.DB_PSE_SSH_PORT || 22,
+                port: parseInt(process.env.DB_PSE_SSH_PORT, 10) || 22,
                 username: process.env.DB_PSE_SSH_USER,
                 privateKey: fs.readFileSync(process.env.DB_PSE_SSH_KEY_PATH)
-                // Si tu key tiene passphrase, agrega:
-                // passphrase: process.env.DB_TSI_SSH_KEY_PASSPHRASE
             }
             break;
-        default:
-            dbServer = {}
-            break;
+    default:
+        const err = new Error(`URL de base de datos no reconocida: "${url}"`);
+        notifyError({ type: 'Error configuración DB', error: err });
+        return Promise.reject(err);
+    }
+
+    if (!dbServer.host) {
+        const err = new Error(`Host de base de datos no configurado para: "${url}"`);
+        notifyError({ type: 'Error configuración DB', error: err });
+        return Promise.reject(err);
     }
 
     const forwardConfig = {
@@ -66,15 +69,22 @@ const create_mysql_connection = (url) => {
         dstPort: dbServer.port
     };
 
+    // Se crea una nueva instancia por cada llamada para evitar acumulación de listeners
+    const sshClient = new Client();
+
     const SSHConnection = new Promise((resolve, reject) => {
-        sshClient.on('ready', () => {
-            sshClient.forwardOut(//'127.0.0.1', 3306, '127.0.0.1', 3306,
+        sshClient.once('ready', () => {
+            sshClient.forwardOut(
                 forwardConfig.srcHost,
                 forwardConfig.srcPort,
                 forwardConfig.dstHost,
                 forwardConfig.dstPort,
                 (err, stream) => {
-                    if (err) reject(err);
+                    if (err) {
+                        sshClient.end();
+                        notifyError({ type: 'Error SSH forwardOut', error: err, payload: { url } });
+                        return reject(err);
+                    }
                     const updatedDbServer = {
                         ...dbServer,
                         stream
@@ -82,12 +92,24 @@ const create_mysql_connection = (url) => {
                     const connection = mysql2.createConnection(updatedDbServer);
                     connection.connect((error) => {
                         if (error) {
-                            reject(error);
+                            sshClient.end();
+                            notifyError({ type: 'Error conexión MySQL vía SSH', error, payload: { url } });
+                            return reject(error);
                         }
+                        // Cerrar el cliente SSH cuando la conexión MySQL se destruya
+                        connection.on('end', () => sshClient.end());
+                        connection.on('error', () => sshClient.end());
                         resolve(connection);
                     });
                 });
-        }).connect(tunnelConfig);
+        });
+
+        sshClient.on('error', (err) => {
+            notifyError({ type: 'Error conexión SSH', error: err, payload: { url } });
+            reject(err);
+        });
+
+        sshClient.connect(tunnelConfig);
     });
     return SSHConnection;
 };

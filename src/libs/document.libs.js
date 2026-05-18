@@ -4,6 +4,7 @@ const { adaptGuiaTransportista } = require('../models/apiSunat/adaptGuiaTranspor
 const { ApiSunat } = require('./apiApiSunat.libs');
 const { selectAllApiCompany } = require('./company.libs');
 const { update_doc_api } = require('./connection');
+const { notifyError } = require('./logger');
 // const limit = require('p-limit');
 // const limiter = limit(10);
 
@@ -359,14 +360,33 @@ const sendDoc = async (company, docu) => {
                 result.state = 'E';
             }
         }
+        if (result.state === 'X') {
+            notifyError({
+                type:     'Fallo envío documento al PRO',
+                error:    new Error(typeof result.message === 'string' ? result.message : JSON.stringify(result.message)),
+                tenant:   company.tenant,
+                ruc:      company.company_number,
+                document: `${docu.serie}-${docu.numero}`,
+                payload:  { result, json_format: docu.json_format },
+            });
+        }
     } else {
         if (docu.states == 'S') // Cuando aun no fue declarado pero se debe anular.
             result.state = 'P'; // Pendiente de anulación
         else
             result.state = 'E';
 
-        if (result.data.state_type_description == 'Rechazado')
+        if (result.data.state_type_description == 'Rechazado') {
             result.state = 'R';
+            notifyError({
+                type:     'Documento rechazado por SUNAT',
+                error:    new Error(`Documento rechazado: ${result.data.state_type_description}`),
+                tenant:   company.tenant,
+                ruc:      company.company_number,
+                document: `${docu.serie}-${docu.numero}`,
+                payload:  { result, json_format: docu.json_format },
+            });
+        }
 
         if (docu.type == '09' || docu.type == '31') {
             result.state = 'Y'; // Guia enviada al pro mas no a sunat
@@ -527,6 +547,16 @@ const sendAllDocsPerCompany = async (company, docus) => {
                     result.state = 'E';
                 }
             }
+            if (result.state === 'X') {
+                notifyError({
+                    type:     'Fallo envío masivo documento al PRO',
+                    error:    new Error(typeof result.message === 'string' ? result.message : JSON.stringify(result.message)),
+                    tenant:   company.tenant,
+                    ruc:      company.company_number,
+                    document: `${docu.serie}-${docu.numero}`,
+                    payload:  { result },
+                });
+            }
             await update_document(docu.id_document, company.tenant, result)
         }
         else {
@@ -660,6 +690,10 @@ const sendAllDocsAllCompanies = async () => {
         }
     } catch (error) {
         console.error('Error in sendAllDocsAllCompanies:', error);
+        notifyError({
+            type:    'Error en tarea automática sendAllDocsAllCompanies',
+            error,
+        });
     } finally {
         isProcessing = false;
     }
@@ -697,6 +731,10 @@ const sendAllAnulateDocsAllCompanies = async () => {
         }
     } catch (error) {
         console.error('Error in sendAllAnulateDocsAllCompanies:', error);
+        notifyError({
+            type:    'Error en tarea automática sendAllAnulateDocsAllCompanies',
+            error,
+        });
     } finally {
         isProcessingNullify = false;
     }
@@ -732,6 +770,10 @@ const consultAllAnulateDocsAllCompanies = async () => {
         }
     } catch (error) {
         console.error('Error in sendAllAnulateDocsAllCompanies:', error);
+        notifyError({
+            type:    'Error en tarea automática consultAllAnulateDocsAllCompanies',
+            error,
+        });
     } finally {
         isProcessingNullifyConsult = false;
     }

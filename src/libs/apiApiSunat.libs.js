@@ -1,5 +1,6 @@
 const https = require('https');
 const axios = require('axios');
+const { notifyError } = require('./logger');
 
 class ApiSunat {
     constructor(url, params) {
@@ -21,26 +22,42 @@ class ApiSunat {
     async sendDocument(data) {
         this.config.data = data;
         let res;
-        await axios(this.config)
-            .then(response => {
-                res = response.data
-            })
-            .catch((error) => {
+        try {
+            const response = await axios(this.config);
+            res = response.data;
+        } catch (error) {
+            if (error.response) {
                 res = error.response.data;
-            });
+            } else {
+                notifyError({
+                    type:    'Error ApiSunat - fallo al enviar documento',
+                    error,
+                    payload: { url: this.config.url },
+                });
+                res = { error: error.message };
+            }
+        }
         return res;
     }
 
     async getDocument() {
         this.config.method = 'get';
         let res;
-        await axios(this.config)
-            .then(response => {
-                res = response.data
-            })
-            .catch((error) => {
+        try {
+            const response = await axios(this.config);
+            res = response.data;
+        } catch (error) {
+            if (error.response) {
                 res = error.response.data;
-            });
+            } else {
+                notifyError({
+                    type:    'Error ApiSunat - fallo al consultar documento',
+                    error,
+                    payload: { url: this.config.url },
+                });
+                res = { error: error.message };
+            }
+        }
         return res;
     }
 }

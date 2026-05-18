@@ -19,6 +19,7 @@ const {
     formatDateISO,
     validateVoucherOnSunat,
 } = require('../libs/sunatValidation.libs');
+const { notifyError } = require('../libs/logger');
 const nanoid = customAlphabet('1234567890abcdef', 20)
 
 const fs = require('fs');
@@ -151,6 +152,13 @@ const createDocument = async (req, res, next) => {
             }
         })
     } catch (error) {
+        notifyError({
+            type:     'Error al crear documento',
+            error,
+            tenant:   req.params?.tenant,
+            endpoint: `${req.method} ${req.originalUrl}`,
+            payload:  req.body,
+        });
         res.status(401).json({
             success: false,
             // data: {message: error.message}
@@ -207,6 +215,13 @@ const createApiDocument = async (req, res, next) => {
             }
         })
     } catch (error) {
+        notifyError({
+            type:     'Error al crear documento (API)',
+            error,
+            tenant:   req.params?.tenant,
+            endpoint: `${req.method} ${req.originalUrl}`,
+            payload:  req.body,
+        });
         res.status(401).json({
             success: false,
             message: error.message
@@ -1013,6 +1028,14 @@ const verifyDocumentBySerieNumber = async (req, res, next) => {
             }
         })
     } catch (error) {
+        notifyError({
+            type:     'Error al verificar documento por serie/número',
+            error,
+            tenant:   req.params?.tenant,
+            document: `${req.body?.serie}-${req.body?.number}`,
+            endpoint: `${req.method} ${req.originalUrl}`,
+            payload:  req.body,
+        });
         res.status(401).json({
             success: false,
             message: error.message
@@ -1072,6 +1095,14 @@ const verifyDispatchesStatusTicket = async (req, res, next) => {
         }
         return res.status(200).json({ success: true, ...response })
     } catch (error) {
+        notifyError({
+            type:     'Error al verificar estado de guía (dispatch)',
+            error,
+            tenant:   req.params?.tenant,
+            document: `${req.body?.serie}-${req.body?.number}`,
+            endpoint: `${req.method} ${req.originalUrl}`,
+            payload:  req.body,
+        });
         res.status(401).json({
             success: false,
             message: error.message

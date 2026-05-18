@@ -4,6 +4,7 @@ const cors = require('cors');
 const morgan = require('morgan');
 const swaggerUi = require('swagger-ui-express');
 const swaggerJsDoc = require('swagger-jsdoc');
+const { errorHandler } = require('./middlewares/errorHandler');
 
 // Importar rutas
 const routerAuth = require('./routes/auth.routes');
@@ -77,13 +78,8 @@ app.use((req, res) => {
     });
 });
 
-// Manejo de errores
-app.use((err, req, res, next) => {
-    res.status(500).json({
-        status: "error",
-        message: err.message || "Error interno del servidor",
-    });
-});
+// Manejo de errores global (notifica a Telegram/Discord + log en archivo)
+app.use(errorHandler);
 
 // Iniciar servidor
 app.listen(PORT, () => {
