@@ -2,7 +2,7 @@ const pool = require('../db')
 const { ApiClient } = require('../libs/api.libs');
 const { adaptGuiaTransportista } = require('../models/apiSunat/adaptGuiaTransportista');
 const { ApiSunat } = require('./apiApiSunat.libs');
-const { selectAllApiCompany } = require('./company.libs');
+const { selectAllApiCompany, incrementCronAuthFailure, resetCronAuthFailure } = require('./company.libs');
 const { update_doc_api } = require('./connection');
 const { notifyError } = require('./logger');
 // const limit = require('p-limit');
@@ -503,6 +503,32 @@ const validarMensajeError = (response) => {
     return true; // No hay errores conocidos
 };
 
+/**
+ * Detecta si un resultado de envío es un error de autenticación/configuración irrecuperable.
+ * Estos errores indican que la empresa tiene credenciales o URL incorrectas y no tiene
+ * sentido continuar enviando documentos hasta que el admin corrija la configuración.
+ */
+const isAuthError = (result) => {
+    const msg = typeof result?.message === 'string'
+        ? result.message
+        : JSON.stringify(result?.message ?? '');
+    const status = result?.status ?? result?.statusCode ?? 0;
+
+    const authPatterns = [
+        'El tipo SOAP no coincide',
+        'tipo SOAP',
+        'Unauthorized',
+        'Unauthenticated',
+        'Invalid token',
+        'token inválido',
+        'token expirado',
+        'No autorizado',
+    ];
+
+    if (status === 401 || status === 403 || status === 409) return true;
+    return authPatterns.some(p => msg.toLowerCase().includes(p.toLowerCase()));
+};
+
 const sendAllDocsPerCompany = async (company, docus) => {
 
     let result;
@@ -533,6 +559,23 @@ const sendAllDocsPerCompany = async (company, docus) => {
         result = await api.sendDocument(docu.json_format)
 
         if (!result.success) {
+            // Detectar fallo de autenticación → abortar empresa y registrar fallo
+            if (isAuthError(result)) {
+                notifyError({
+                    type:    'Error de autenticación en cron — empresa abortada',
+                    error:   new Error(typeof result.message === 'string' ? result.message : JSON.stringify(result.message)),
+                    tenant:  company.tenant,
+                    ruc:     company.company_number,
+                    payload: { result },
+                });
+                const { disabled, count } = await incrementCronAuthFailure(company.id_company, company.tenant);
+                if (disabled) {
+                    console.warn(`[CRON] ${company.tenant}: cron_enabled=false automático tras ${count} fallos de auth consecutivos`);
+                }
+                // Abortar todos los documentos restantes de esta empresa
+                return { num_aceptados, num_error: num_error + 1, num_rechazados };
+            }
+
             console.log("TASK", { result });
             result.state = 'X';
             num_error += 1;
@@ -560,6 +603,11 @@ const sendAllDocsPerCompany = async (company, docus) => {
             await update_document(docu.id_document, company.tenant, result)
         }
         else {
+            // Envío exitoso: resetear contador de fallos de auth si había alguno
+            if (company.cron_failure_count > 0) {
+                await resetCronAuthFailure(company.id_company);
+            }
+
             if (docu.states == 'S')
                 result.state = 'P';
             else
@@ -669,23 +717,33 @@ const sendAllDocsAllCompanies = async () => {
     try {
         const companies = await selectAllApiCompany();
         for (let company of companies) {
-            if (company.state && company.url && company.token) {
-                const docus = await select_all_documents(company.tenant);
-                if (docus.length > 0) {
-                    console.log(`Processing company: ${company.tenant} with ${docus.length} documents`);
-                    let { num_aceptados, num_error, num_rechazados } = await sendAllDocsPerCompany(company, docus);
-                    console.log({
-                        company: company.tenant,
-                        message: 'Comprobantes Nuevos Enviados',
-                        num_aceptados: `Aceptados ${num_aceptados}`,
-                        num_rechazados: `Rechazados ${num_rechazados}`,
-                        num_error: `Con Error ${num_error}`
-                    });
+            try {
+                if (company.state && company.url && company.token) {
+                    const docus = await select_all_documents(company.tenant);
+                    if (docus.length > 0) {
+                        console.log(`Processing company: ${company.tenant} with ${docus.length} documents`);
+                        let { num_aceptados, num_error, num_rechazados } = await sendAllDocsPerCompany(company, docus);
+                        console.log({
+                            company: company.tenant,
+                            message: 'Comprobantes Nuevos Enviados',
+                            num_aceptados: `Aceptados ${num_aceptados}`,
+                            num_rechazados: `Rechazados ${num_rechazados}`,
+                            num_error: `Con Error ${num_error}`
+                        });
+                    } else {
+                        console.log(company.tenant, "no documents");
+                    }
                 } else {
-                    console.log(company.tenant, "no documents");
+                    console.log(company.tenant, "company blocked or missing url/token");
                 }
-            } else {
-                console.log(company.tenant, "company blocked or missing url/token");
+            } catch (companyError) {
+                console.error(`[CRON] Error inesperado procesando empresa ${company.tenant}:`, companyError?.message);
+                notifyError({
+                    type:   'Error inesperado en sendAllDocsAllCompanies por empresa',
+                    error:  companyError,
+                    tenant: company.tenant,
+                    ruc:    company.company_number,
+                });
             }
         }
     } catch (error) {
@@ -709,25 +767,39 @@ const sendAllAnulateDocsAllCompanies = async () => {
 
     isProcessingNullify = true;
     try {
-        let error = 0;
         const companies = await selectAllApiCompany()
         for (let company of companies) {
-            const listformat = await formatAnulatePerCompany(company.tenant)
-            if (listformat.length > 0) {
-                const api_doc = await update_doc_api(null, company.url)
-                const api = new ApiClient(`${company.url}/api/summaries`, company.token)
-                const apif = new ApiClient(`${company.url}/api/voided`, company.token)
+            try {
+                if (!company.url || !company.token) {
+                    console.log(company.tenant, "missing url/token — skipping");
+                    continue;
+                }
+                const listformat = await formatAnulatePerCompany(company.tenant)
+                if (listformat.length > 0) {
+                    const api_doc = await update_doc_api(null, company.url)
+                    const api = new ApiClient(`${company.url}/api/summaries`, company.token)
+                    const apif = new ApiClient(`${company.url}/api/voided`, company.token)
 
-                const { num_anulados, num_error } = await sendAllAnulateDocsPerCompany(company, api, apif, listformat)
+                    const { num_anulados, num_error } = await sendAllAnulateDocsPerCompany(company, api, apif, listformat)
 
-                console.log({
-                    success: true,
-                    message: 'Comprobantes Enviados Anulados',
-                    num_anulados: `Anulados ${num_anulados}`,
-                    num_error: `Con Error ${num_error}`
+                    console.log({
+                        success: true,
+                        message: 'Comprobantes Enviados Anulados',
+                        num_anulados: `Anulados ${num_anulados}`,
+                        num_error: `Con Error ${num_error}`
+                    });
+                } else {
+                    console.log(company.tenant, "No documents");
+                }
+            } catch (companyError) {
+                console.error(`[CRON] Error inesperado procesando anulaciones empresa ${company.tenant}:`, companyError?.message);
+                notifyError({
+                    type:   'Error inesperado en sendAllAnulateDocsAllCompanies por empresa',
+                    error:  companyError,
+                    tenant: company.tenant,
+                    ruc:    company.company_number,
                 });
             }
-            console.log(company.tenant, "No documents");
         }
     } catch (error) {
         console.error('Error in sendAllAnulateDocsAllCompanies:', error);

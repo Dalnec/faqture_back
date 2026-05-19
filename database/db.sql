@@ -79,6 +79,12 @@ ALTER TABLE public.company
 ADD COLUMN ubigeo varchar(20);
 ALTER TABLE public.company
 ADD COLUMN external_api jsonb;
+-- cron_enabled: excluye empresa del envío por tareas programadas (sigue recepcionando docs normalmente)
+ALTER TABLE public.company
+ADD COLUMN cron_enabled BOOLEAN NOT NULL DEFAULT TRUE;
+-- cron_failure_count: contador de fallos consecutivos de autenticación en el cron (se resetea al éxito)
+ALTER TABLE public.company
+ADD COLUMN cron_failure_count SMALLINT NOT NULL DEFAULT 0;
 -- TASK TABLE
 CREATE TABLE public.tasks(
     id_task SERIAL,

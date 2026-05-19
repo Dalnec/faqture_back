@@ -152,6 +152,28 @@ const createDocument = async (req, res, next) => {
             }
         })
     } catch (error) {
+        // Duplicate key: el documento ya existe → retornar el existente como éxito
+        if (error.code === '23505' && error.constraint === 'document_serie_numero_key') {
+            const { serie_documento, numero_documento } = req.body;
+            const tenant = req.params?.tenant;
+            console.warn(`[createDocument] Documento duplicado detectado: ${tenant} ${serie_documento}-${numero_documento}`);
+            try {
+                const existing = await select_document_by_serie_number(tenant, serie_documento, numero_documento);
+                if (existing) {
+                    return res.status(200).json({
+                        success: true,
+                        duplicate: true,
+                        data: {
+                            cod_sale: existing.cod_sale,
+                            filename: `${req.params?.company_number}-${existing.type}-${existing.serie}-${existing.numero}`,
+                            state: existing.states,
+                            external_id: existing.external_id,
+                        }
+                    });
+                }
+            } catch (_) { /* caer al error genérico si falla la búsqueda */ }
+        }
+
         notifyError({
             type:     'Error al crear documento',
             error,
