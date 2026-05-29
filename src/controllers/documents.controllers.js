@@ -89,11 +89,15 @@ const getDocumentById = async (req, res, next) => {
 };
 
 const createDocument = async (req, res, next) => {
+    const tenant = req.params.tenant;
+    // Obtener datos de la empresa desde DB usando el tenant (no vienen en los params de la ruta)
+    const apiCompany = await getCompanyByTenant(tenant);
+    const company = apiCompany?.id_company ?? null;
+    const company_number = apiCompany?.company_number ?? null;
+
     try {
-        const tenant = req.params.tenant;
         const strdocument = JSON.stringify(req.body, null, 4)
         const document = req.body
-        const { company, company_number } = req.params
         const { codigo_tipo_documento } = document
 
         if (!codigo_tipo_documento) {
@@ -104,11 +108,6 @@ const createDocument = async (req, res, next) => {
 
         const { id_venta, fecha_de_emision, hora_de_emision, serie_documento,
             numero_documento } = document
-
-        // let doc = await select_document_by_serie_number(tenant, serie_documento, numero_documento);
-        // if (doc) {
-        // return res.status(200).json({ success: true, data: JSON.parse(doc.response_send), message: "Documento no encontrado", })
-        // }
 
         const now = new Date()
         const date = `${fecha_de_emision} ${hora_de_emision}`
@@ -137,8 +136,7 @@ const createDocument = async (req, res, next) => {
         );
 
         let result = {}
-        const apiCompany = await selectApiCompanyById(company)
-        if (apiCompany.autosend) {
+        if (apiCompany?.autosend) {
             result = await sendDoc(apiCompany, response.rows[0])
         }
 
@@ -152,21 +150,26 @@ const createDocument = async (req, res, next) => {
             }
         })
     } catch (error) {
-        // Duplicate key: el documento ya existe → retornar el existente como éxito
+        // Duplicate key: el documento ya existe → retornar el existente con información correcta
         if (error.code === '23505' && error.constraint === 'document_serie_numero_key') {
             const { serie_documento, numero_documento } = req.body;
-            const tenant = req.params?.tenant;
             console.warn(`[createDocument] Documento duplicado detectado: ${tenant} ${serie_documento}-${numero_documento}`);
             try {
                 const existing = await select_document_by_serie_number(tenant, serie_documento, numero_documento);
                 if (existing) {
+                    let finalState = existing.states;
+                    // Si el documento quedó pendiente y la empresa tiene autosend → enviar ahora
+                    if (existing.states === 'N' && apiCompany?.autosend) {
+                        const sendResult = await sendDoc(apiCompany, existing);
+                        if (sendResult?.state) finalState = sendResult.state;
+                    }
                     return res.status(200).json({
                         success: true,
                         duplicate: true,
                         data: {
                             cod_sale: existing.cod_sale,
-                            filename: `${req.params?.company_number}-${existing.type}-${existing.serie}-${existing.numero}`,
-                            state: existing.states,
+                            filename: `${company_number}-${existing.type}-${existing.serie}-${existing.numero}`,
+                            state: finalState,
                             external_id: existing.external_id,
                         }
                     });
@@ -175,15 +178,14 @@ const createDocument = async (req, res, next) => {
         }
 
         notifyError({
-            type:     'Error al crear documento',
+            type: 'Error al crear documento',
             error,
-            tenant:   req.params?.tenant,
+            tenant,
             endpoint: `${req.method} ${req.originalUrl}`,
-            payload:  req.body,
+            payload: req.body,
         });
         res.status(401).json({
             success: false,
-            // data: {message: error.message}
             message: error.message
         })
     }
@@ -238,11 +240,11 @@ const createApiDocument = async (req, res, next) => {
         })
     } catch (error) {
         notifyError({
-            type:     'Error al crear documento (API)',
+            type: 'Error al crear documento (API)',
             error,
-            tenant:   req.params?.tenant,
+            tenant: req.params?.tenant,
             endpoint: `${req.method} ${req.originalUrl}`,
-            payload:  req.body,
+            payload: req.body,
         });
         res.status(401).json({
             success: false,
@@ -625,12 +627,12 @@ const getXMLByTenant = async (req, res, next) => {
         if (!filename) {
             console.error('Filename no disponible');
             if (!xml) {
-              return res.status(500).json({
-                  success: false,
-                  message: 'Nombre de archivo no disponible'
-              });
+                return res.status(500).json({
+                    success: false,
+                    message: 'Nombre de archivo no disponible'
+                });
             } else {
-              filename = `${company.company_number}-${doc.type}-${doc.serie}-${doc.numero}`
+                filename = `${company.company_number}-${doc.type}-${doc.serie}-${doc.numero}`
             }
         }
 
@@ -1002,66 +1004,160 @@ const reportContaSisCorp = async (req, res, next) => {
 const verifyDocumentBySerieNumber = async (req, res, next) => {
     try {
         const tenant = req.params.tenant;
-        const { serie, number } = req.body
+        const { serie, number } = req.body;
+
+        if (!serie || typeof serie !== 'string' || serie.trim() === '') {
+            return res.status(400).json({
+                success: false,
+                message: "El campo 'serie' es requerido y debe ser una cadena de texto válida",
+            });
+        }
+        if (!number || (typeof number !== 'string' && typeof number !== 'number') || String(number).trim() === '') {
+            return res.status(400).json({
+                success: false,
+                message: "El campo 'number' es requerido y debe ser un valor válido",
+            });
+        }
+
         let doc = await select_document_by_serie_number(tenant, serie, number);
         if (!doc) {
             return res.status(404).json({
                 success: false,
                 message: "Documento no encontrado",
-            })
+            });
         }
 
-        const company = await getCompanyByTenant(tenant)
+        const company = await getCompanyByTenant(tenant);
         if (!company) {
-            return res.status(400).json({ success: false, message: 'Cliente no encontrado' })
+            return res.status(400).json({ success: false, message: 'Cliente no encontrado' });
         }
 
-        console.log(doc.type, doc.response_send);
-        let data = {}
+        let data = {};
+
         if (!doc.response_send) {
-            const result = await sendDoc(company, doc)
-            doc = await select_document_by_external_id(doc.external_id, company.tenant)
+            const result = await sendDoc(company, doc);
+            if (!result || !result.success) {
+                return res.status(200).json({
+                    success: false,
+                    message: result?.message || 'Error al enviar el documento',
+                    state: result?.state || 'X',
+                    data: {
+                        cod_sale: doc.cod_sale,
+                        state: result?.state || 'X',
+                        external_id: doc.external_id,
+                    }
+                });
+            }
+            doc = await select_document_by_external_id(doc.external_id, company.tenant);
+            if (!doc || !doc.response_send) {
+                return res.status(500).json({
+                    success: false,
+                    message: 'No se pudo obtener la respuesta del documento después del envío',
+                });
+            }
         }
 
-        let response_send = JSON.parse(doc.response_send)
-        if (doc.type != '31') {
+        let response_send;
+        try {
+            response_send = JSON.parse(doc.response_send);
+        } catch (parseError) {
+            notifyError({
+                type: 'Error parseando response_send en verifyDocumentBySerieNumber',
+                error: parseError,
+                tenant: req.params?.tenant,
+                document: `${serie}-${number}`,
+                endpoint: `${req.method} ${req.originalUrl}`,
+                payload: { response_send: doc.response_send },
+            });
+            return res.status(500).json({
+                success: false,
+                message: 'Error al procesar la respuesta del documento',
+            });
+        }
+
+        if (doc.type !== '31') {
             if (!response_send.success) {
-                const api = new ApiClient(`${company.url}/api/documents/lists/`, company.token)
-                const rpta = await verifyingExternalIds(company.tenant, api)
-                doc = await select_document_by_external_id(doc.external_id, company.tenant)
+                const api = new ApiClient(`${company.url}/api/documents/lists/`, company.token);
+                await verifyingExternalIds(company.tenant, api);
+                doc = await select_document_by_external_id(doc.external_id, company.tenant);
+
+                if (!doc || !doc.response_send) {
+                    return res.status(500).json({
+                        success: false,
+                        message: 'No se pudo actualizar la respuesta del documento',
+                    });
+                }
+
+                try {
+                    response_send = JSON.parse(doc.response_send);
+                } catch (parseError) {
+                    return res.status(500).json({
+                        success: false,
+                        message: 'Error al procesar la respuesta actualizada del documento',
+                    });
+                }
+
+                if (!response_send.success) {
+                    return res.status(200).json({
+                        success: false,
+                        message: response_send.message || 'La verificación del documento falló',
+                        state: response_send.state || 'X',
+                        external_id: doc.external_id,
+                        data: {
+                            cod_sale: doc.cod_sale,
+                            state: response_send.state || 'X',
+                            external_id: doc.external_id,
+                            message: response_send.message || null,
+                        }
+                    });
+                }
             }
-            data = JSON.parse(doc.response_send)
+            data = response_send;
         } else {
-            if (company.external_api.apisunat) {
-                const rpta = await getDocGuiaTransportista(company, doc)
-                data = rpta
+            if (company.external_api?.apisunat) {
+                const rpta = await getDocGuiaTransportista(company, doc);
+                data = rpta;
             }
         }
 
-        // TODO: Verificar si es necesario preguntar al TILSON si esta bien la respuesta
+        if (response_send?.state === 'X' || response_send?.state === 'R') {
+            return res.status(200).json({
+                success: false,
+                message: response_send.message || (response_send.state === 'R' ? 'Documento rechazado por SUNAT' : 'Error en el procesamiento del documento'),
+                state: response_send.state,
+                external_id: doc.external_id,
+                data: {
+                    cod_sale: doc.cod_sale,
+                    state: response_send.state,
+                    external_id: doc.external_id,
+                    message: response_send.message || null,
+                }
+            });
+        }
+
         res.status(200).json({
             success: true,
             data: {
                 cod_sale: doc.cod_sale,
-                filename: JSON.parse(doc.response_send).data.filename,
+                filename: response_send?.data?.filename || null,
                 state: doc.states,
                 external_id: doc.external_id,
-                data: data
+                response: data,
             }
-        })
+        });
     } catch (error) {
         notifyError({
-            type:     'Error al verificar documento por serie/número',
+            type: 'Error al verificar documento por serie/número',
             error,
-            tenant:   req.params?.tenant,
+            tenant: req.params?.tenant,
             document: `${req.body?.serie}-${req.body?.number}`,
             endpoint: `${req.method} ${req.originalUrl}`,
-            payload:  req.body,
+            payload: req.body,
         });
         res.status(401).json({
             success: false,
             message: error.message
-        })
+        });
     }
 };
 
@@ -1118,12 +1214,12 @@ const verifyDispatchesStatusTicket = async (req, res, next) => {
         return res.status(200).json({ success: true, ...response })
     } catch (error) {
         notifyError({
-            type:     'Error al verificar estado de guía (dispatch)',
+            type: 'Error al verificar estado de guía (dispatch)',
             error,
-            tenant:   req.params?.tenant,
+            tenant: req.params?.tenant,
             document: `${req.body?.serie}-${req.body?.number}`,
             endpoint: `${req.method} ${req.originalUrl}`,
-            payload:  req.body,
+            payload: req.body,
         });
         res.status(401).json({
             success: false,
