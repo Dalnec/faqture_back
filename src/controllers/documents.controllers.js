@@ -164,6 +164,16 @@ const createDocument = async (req, res, next) => {
                         const sendResult = await sendDoc(apiCompany, existing);
                         if (sendResult?.state) finalState = sendResult.state;
                     }
+                    console.log({
+                        success: true,
+                        duplicate: true,
+                        data: {
+                            cod_sale: existing.cod_sale,
+                            filename: `${company_number}-${existing.type}-${existing.serie}-${existing.numero}`,
+                            state: finalState ? finalState : 'N',
+                            external_id: existing.external_id,
+                        }
+                    });
                     return res.status(200).json({
                         success: true,
                         duplicate: true,
@@ -185,6 +195,7 @@ const createDocument = async (req, res, next) => {
             endpoint: `${req.method} ${req.originalUrl}`,
             payload: req.body,
         });
+        console.log("Llego a este punto antes del 401")
         res.status(401).json({
             success: false,
             message: error.message
