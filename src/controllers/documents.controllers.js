@@ -722,6 +722,226 @@ const getXMLByTenant = async (req, res, next) => {
     }
 };
 
+const getCDRByTenant = async (req, res, next) => {
+    try {
+        const tenant = req.params.tenant;
+        const { serie, number } = req.query;
+
+        console.log('=== Inicio getCDRByTenant ===');
+        console.log('Tenant:', tenant);
+        console.log('Serie:', serie);
+        console.log('Number:', number);
+
+        // Validar parámetros requeridos
+        if (!serie || !number) {
+            return res.status(400).json({
+                success: false,
+                message: 'Faltan parametros para la consulta'
+            });
+        }
+
+        // Obtener compañía
+        const company = await getCompanyByTenant(tenant);
+        console.log('Company encontrada:', company ? 'Sí' : 'No');
+
+        if (!company) {
+            return res.status(400).json({
+                success: false,
+                message: 'Cliente no encontrado'
+            });
+        }
+
+        // Buscar documento
+        let doc = await select_document_by_serie_number(tenant, serie, number);
+        console.log('Documento encontrado:', doc ? 'Sí' : 'No');
+
+        if (!doc) {
+            return res.status(400).json({
+                success: false,
+                message: 'Documento no encontrado'
+            });
+        }
+
+        let cdr, filename;
+
+        // Procesar documento según tenga o no response_send
+        if (!!doc.response_send) {
+            console.log('Documento tiene response_send');
+
+            let response_send;
+            try {
+                response_send = JSON.parse(doc.response_send);
+                console.log('response_send parseado:', JSON.stringify(response_send, null, 2));
+            } catch (parseError) {
+                console.error('Error parseando response_send:', parseError);
+                return res.status(500).json({
+                    success: false,
+                    message: 'Error al procesar respuesta del documento'
+                });
+            }
+
+            // Validar estructura de response_send
+            if (!response_send.data || !response_send.links) {
+                console.error('Estructura de response_send inválida');
+                console.log('response_send.data:', response_send.data);
+                console.log('response_send.links:', response_send.links);
+
+                return res.status(500).json({
+                    success: false,
+                    message: 'Estructura de respuesta inválida'
+                });
+            }
+
+            if (!response_send.success) {
+                console.log('response_send.success es false, verificando external_ids');
+
+                const api = new ApiClient(`${company.url}/api/documents/lists/`, company.token);
+                const rpta = await verifyingExternalIds(company.tenant, api);
+                console.log('Resultado de verifyingExternalIds:', rpta);
+
+                doc = await select_document_by_serie_number(tenant, serie, number);
+
+                if (!doc || !doc.response_send) {
+                    return res.status(500).json({
+                        success: false,
+                        message: 'No se pudo actualizar el documento'
+                    });
+                }
+
+                response_send = JSON.parse(doc.response_send);
+            }
+
+            filename = response_send.data.filename;
+            cdr = response_send.links.cdr;
+
+            console.log('Filename obtenido:', filename);
+            console.log('CDR URL obtenido:', cdr);
+
+        } else {
+            console.log('Documento NO tiene response_send, enviando documento');
+
+            const result = await sendDoc(company, doc);
+            console.log('Resultado de sendDoc:', JSON.stringify(result, null, 2));
+
+            // Validar resultado de sendDoc
+            if (!result) {
+                console.error('result es undefined');
+                return res.status(500).json({
+                    success: false,
+                    message: 'Error al enviar documento - respuesta vacía'
+                });
+            }
+
+            if (!result.data) {
+                console.error('Estructura de result.data inválida');
+                return res.status(500).json({
+                    success: false,
+                    message: 'Error al intentar enviar documento - estructura recibidainválida'
+                });
+            }
+
+            filename = result.data.filename;
+            cdr = result.links.cdr;
+
+            console.log('Filename obtenido de sendDoc:', filename);
+            console.log('CDR URL obtenido de sendDoc:', cdr);
+        }
+
+        // Validar que tenemos filename y cdr
+        if (!filename) {
+            console.error('Filename no disponible');
+            if (!cdr) {
+                return res.status(500).json({
+                    success: false,
+                    message: 'Nombre de archivo no disponible'
+                });
+            } else {
+                filename = `${company.company_number}-${doc.type}-${doc.serie}-${doc.numero}`
+            }
+        }
+
+        if (!cdr) {
+            console.error('URL del CDR no disponible');
+            return res.status(500).json({
+                success: false,
+                message: 'URL del CDR no disponible'
+            });
+        }
+
+        // Descargar archivo CDR
+        const localFilePath = path.join(__dirname, `../../uploads/${filename}.zip`);
+        console.log('Ruta local del archivo:', localFilePath);
+        console.log('Descargando CDR desde:', cdr);
+
+        let response;
+        try {
+            response = await axios({
+                method: 'get',
+                url: cdr,
+                responseType: 'stream',
+                timeout: 30000
+            });
+
+            if (!response || !response.data) {
+                throw new Error('Respuesta inválida del servidor CDR');
+            }
+
+        } catch (axiosError) {
+            console.error('Error en axios al descargar CDR:', axiosError.message);
+            console.error('Stack:', axiosError.stack);
+
+            return res.status(500).json({
+                success: false,
+                message: `Error al descargar CDR: ${axiosError.message}`
+            });
+        }
+
+        // Escribir archivo localmente
+        const writer = fs.createWriteStream(localFilePath);
+        response.data.pipe(writer);
+
+        writer.on('finish', () => {
+            console.log('Archivo escrito exitosamente');
+
+            res.download(localFilePath, `${filename}.zip`, function (err) {
+                if (err) {
+                    console.error('Error al enviar archivo al cliente:', err);
+                } else {
+                    console.log('Archivo descargado exitosamente por el cliente');
+                }
+
+                // Eliminar archivo temporal
+                try {
+                    fs.unlinkSync(localFilePath);
+                    console.log('Archivo temporal eliminado');
+                } catch (unlinkError) {
+                    console.error('Error al eliminar archivo temporal:', unlinkError);
+                }
+            });
+        });
+
+        writer.on('error', (err) => {
+            console.error('Error escribiendo el archivo:', err);
+            console.error('Stack:', err.stack);
+
+            return res.status(500).json({
+                success: false,
+                message: `Error al escribir archivo: ${err.message}`
+            });
+        });
+
+    } catch (error) {
+        console.error('=== Error general en getCDRByTenant ===');
+        console.error('Mensaje:', error.message);
+        console.error('Stack:', error.stack);
+
+        return res.status(500).json({
+            success: false,
+            message: `Error al procesar solicitud: ${error.message}`
+        });
+    }
+};
+
 const getXMLByTenant2 = async (req, res) => {
     const { tenant, external_id } = req.params;
 
@@ -1391,6 +1611,7 @@ module.exports = {
     reports,
     updateJsonFormat,
     getXMLByTenant,
+    getCDRByTenant,
     verifyDocumentBySerieNumber,
     reportConcar,
     reportContaSisCorp,

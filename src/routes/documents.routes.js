@@ -6,12 +6,13 @@ const router = Router();
 
 const { getDocuments, getDocumentById, createDocument, updateDocument, deleteDocument, getDocumentByFilters,
     getDocumentCustomers, getDocumentByFiltersReport, updateApiDocument, clearDocuments, createApiDocument,
-    externalIdFormatNotaCredito, getXML, getXMLByTenant, getXMLByTenant2, reportDocuments, getRejected, reports,
+    externalIdFormatNotaCredito, getXML, getXMLByTenant, getCDRByTenant, getXMLByTenant2, reportDocuments, getRejected, reports,
     updateJsonFormat, verifyDocumentBySerieNumber, reportConcar, reportContaSisCorp,
     verifyDispatchesStatusTicket, nullifyDocument, sendallDocumentsCompanies, verifyDocumentsRangeSunat } = require('../controllers/documents.controllers');
 const { verifyCompanyByTenant } = require('../middlewares/company.middleware');
 
 router.get('/documents/:tenant/xml/', getXMLByTenant)
+router.get('/documents/:tenant/cdr/', getCDRByTenant)
 // router.get('/documents/:tenant', [verifyToken], getDocuments)
 router.get('/documents/:tenant/:id', [verifyToken], getDocumentById)
 router.get('/documents-filters/:tenant', [verifyToken], getDocumentByFilters)
