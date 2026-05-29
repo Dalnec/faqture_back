@@ -156,7 +156,6 @@ const createDocument = async (req, res, next) => {
             console.warn(`[createDocument] Documento duplicado detectado: ${tenant} ${serie_documento}-${numero_documento}`);
             try {
                 const existing = await select_document_by_serie_number(tenant, serie_documento, numero_documento);
-                console.log({ existing });
                 if (existing) {
                     let finalState = existing.states;
                     // Si el documento quedó pendiente y la empresa tiene autosend → enviar ahora
@@ -164,16 +163,7 @@ const createDocument = async (req, res, next) => {
                         const sendResult = await sendDoc(apiCompany, existing);
                         if (sendResult?.state) finalState = sendResult.state;
                     }
-                    console.log({
-                        success: true,
-                        duplicate: true,
-                        data: {
-                            cod_sale: existing.cod_sale,
-                            filename: `${company_number}-${existing.type}-${existing.serie}-${existing.numero}`,
-                            state: finalState ? finalState : 'N',
-                            external_id: existing.external_id,
-                        }
-                    });
+
                     return res.status(200).json({
                         success: true,
                         duplicate: true,
@@ -195,7 +185,6 @@ const createDocument = async (req, res, next) => {
             endpoint: `${req.method} ${req.originalUrl}`,
             payload: req.body,
         });
-        console.log("Llego a este punto antes del 401")
         res.status(401).json({
             success: false,
             message: error.message
