@@ -169,7 +169,7 @@ const createDocument = async (req, res, next) => {
                         data: {
                             cod_sale: existing.cod_sale,
                             filename: `${company_number}-${existing.type}-${existing.serie}-${existing.numero}`,
-                            state: finalState ? finalState : existing.states,
+                            state: finalState ? finalState : 'N',
                             external_id: existing.external_id,
                         }
                     });
