@@ -156,6 +156,7 @@ const createDocument = async (req, res, next) => {
             console.warn(`[createDocument] Documento duplicado detectado: ${tenant} ${serie_documento}-${numero_documento}`);
             try {
                 const existing = await select_document_by_serie_number(tenant, serie_documento, numero_documento);
+                console.log({ existing });
                 if (existing) {
                     let finalState = existing.states;
                     // Si el documento quedó pendiente y la empresa tiene autosend → enviar ahora
