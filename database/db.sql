@@ -96,6 +96,8 @@ CREATE TABLE public.tasks(
     time character varying(100),
     PRIMARY KEY (id_task)
 );
+ALTER TABLE public.tasks
+ADD COLUMN IF NOT EXISTS last_error TEXT;
 -- SETTINGS TABLE
 CREATE TABLE public.settings(
     id_settings SMALLINT,

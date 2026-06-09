@@ -54,7 +54,7 @@ const getCompaniesList = async (req, res, next) => {
         // 2. Obtener las empresas paginadas
         params.push(itemsPerPage, (page - 1) * itemsPerPage); // agregar limites
         const response = await pool.query(
-            `SELECT id_company, company_number, company, tenant, state 
+            `SELECT id_company, company_number, company, tenant, state, cron_enabled, cron_failure_count
             FROM company
             ${whereSQL}
             ORDER BY company ASC
@@ -174,8 +174,22 @@ const createCompany = async (req, res, next) => {
 const updateCompany = async (req, res, next) => {
     try {
         const id = parseInt(req.params.id);
-        const keys = Object.keys(req.body);
-        const values = Object.values(req.body);
+        const data = { ...req.body };
+
+        if (data.cron_enabled === true) {
+            data.cron_failure_count = 0;
+        }
+
+        const keys = Object.keys(data);
+        const values = Object.values(data);
+
+        if (!keys.length) {
+            return res.json({
+                state: 'success',
+                message: "Company Updated"
+            });
+        }
+
         // Construir la parte del SET dinámicamente
         const setClause = keys.map((key, index) => `${key} = $${index + 1}`).join(", ");
         // Agregar id al final de los valores

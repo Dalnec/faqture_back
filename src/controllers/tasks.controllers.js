@@ -43,7 +43,7 @@ class TaskManager {
         const taskHandlers = {
             1: async () => {
                 console.log('----- taskDocs running ----- ');
-                await sendAllDocsAllCompanies();
+                await sendAllDocsAllCompanies({ source: 'cron' });
             },
             2: async () => {
                 console.log('----- taskDocsVoided running -----');
@@ -478,7 +478,7 @@ const getTasksStatus = async (req, res, next) => {
 // boton de pruebas
 const sendallDocumentsCompanies = async (req, res, next) => {
     try {
-        await sendAllDocsAllCompanies();
+        await sendAllDocsAllCompanies({ source: 'manual' });
         return res.status(200).json({
             success: true,
             message: "Sent!",

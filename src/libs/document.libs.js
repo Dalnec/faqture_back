@@ -529,13 +529,14 @@ const isAuthError = (result) => {
     return authPatterns.some(p => msg.toLowerCase().includes(p.toLowerCase()));
 };
 
-const sendAllDocsPerCompany = async (company, docus) => {
+const sendAllDocsPerCompany = async (company, docus, options = {}) => {
 
     let result;
     let num_aceptados = 0;
     let num_error = 0;
     let num_rechazados = 0;
     let api;
+    const isCronSource = options.source === 'cron';
 
     for (let docu of docus) {
         if (validarMensajeError(JSON.parse(docu.response_send)) === false) {
@@ -562,15 +563,18 @@ const sendAllDocsPerCompany = async (company, docus) => {
             // Detectar fallo de autenticación → abortar empresa y registrar fallo
             if (isAuthError(result)) {
                 notifyError({
-                    type:    'Error de autenticación en cron — empresa abortada',
+                    type:    isCronSource ? 'Error de autenticación en cron - empresa abortada' : 'Error de autenticación en envío manual',
                     error:   new Error(typeof result.message === 'string' ? result.message : JSON.stringify(result.message)),
                     tenant:  company.tenant,
                     ruc:     company.company_number,
                     payload: { result },
                 });
-                const { disabled, count } = await incrementCronAuthFailure(company.id_company, company.tenant);
-                if (disabled) {
-                    console.warn(`[CRON] ${company.tenant}: cron_enabled=false automático tras ${count} fallos de auth consecutivos`);
+
+                if (isCronSource) {
+                    const { disabled, count } = await incrementCronAuthFailure(company.id_company, company.tenant);
+                    if (disabled) {
+                        console.warn(`[CRON] ${company.tenant}: cron_enabled=false automático tras ${count} fallos de auth consecutivos`);
+                    }
                 }
                 // Abortar todos los documentos restantes de esta empresa
                 return { num_aceptados, num_error: num_error + 1, num_rechazados };
@@ -604,7 +608,7 @@ const sendAllDocsPerCompany = async (company, docus) => {
         }
         else {
             // Envío exitoso: resetear contador de fallos de auth si había alguno
-            if (company.cron_failure_count > 0) {
+            if (isCronSource && company.cron_failure_count > 0) {
                 await resetCronAuthFailure(company.id_company);
             }
 
@@ -707,7 +711,7 @@ const sendAllAnulateDocsPerCompany = async (company, api, apif, listformat) => {
 
 // Used by tasks
 let isProcessing = false;
-const sendAllDocsAllCompanies = async () => {
+const sendAllDocsAllCompanies = async (options = {}) => {
     if (isProcessing) {
         console.log('Previous execution still running, skipping...');
         return;
@@ -722,7 +726,7 @@ const sendAllDocsAllCompanies = async () => {
                     const docus = await select_all_documents(company.tenant);
                     if (docus.length > 0) {
                         console.log(`Processing company: ${company.tenant} with ${docus.length} documents`);
-                        let { num_aceptados, num_error, num_rechazados } = await sendAllDocsPerCompany(company, docus);
+                        let { num_aceptados, num_error, num_rechazados } = await sendAllDocsPerCompany(company, docus, options);
                         console.log({
                             company: company.tenant,
                             message: 'Comprobantes Nuevos Enviados',

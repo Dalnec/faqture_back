@@ -38,7 +38,7 @@ const sendDocumentAll = async (req, res, next) => {
 
     const docus = await select_all_documents(company.tenant)
 
-    const { num_aceptados, num_error, num_rechazados } = await sendAllDocsPerCompany(company, docus)
+    const { num_aceptados, num_error, num_rechazados } = await sendAllDocsPerCompany(company, docus, { source: 'manual' })
 
     const counting = await countingDocsState(company.tenant)
 

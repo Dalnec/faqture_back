@@ -15,6 +15,7 @@ const routerApi = require('./routes/api.routes');
 const routerTasks = require('./routes/tasks.routes');
 const routerSettings = require('./routes/settings.routes');
 const routerWhatsapp = require('./routes/whatsapp.router');
+const { initializeTaskManager } = require('./controllers/tasks.controllers');
 
 // Inicializar app
 const app = express();
@@ -85,4 +86,8 @@ app.use(errorHandler);
 app.listen(PORT, () => {
     console.log(`Servidor corriendo en http://localhost:${PORT}`);
     console.log(`Documentación disponible en http://localhost:${PORT}/docs`);
+
+    initializeTaskManager().catch((error) => {
+        console.error('Error initializing task manager:', error);
+    });
 });

@@ -35,10 +35,24 @@ class ApiClient {
             // Normalize error object
             if (error.response) {
                 // Server responded with non-2xx — error esperado, no notificar
-                return error.response.data ?? {
+                const data = error.response.data ?? {
+                    error: 'HTTP_ERROR',
+                    message: error.message,
+                };
+
+                if (data && typeof data === 'object') {
+                    return {
+                        ...data,
+                        status: data.status ?? error.response.status,
+                        statusCode: data.statusCode ?? error.response.status,
+                    };
+                }
+
+                return {
                     error: 'HTTP_ERROR',
                     status: error.response.status,
-                    message: error.message,
+                    statusCode: error.response.status,
+                    message: data || error.message,
                 };
             } else if (error.request) {
                 // Request made, no response — problema de red/timeout
@@ -76,10 +90,24 @@ class ApiClient {
             return response?.data ?? null;
         } catch (error) {
             if (error.response) {
-                return error.response.data ?? {
+                const data = error.response.data ?? {
+                    error: 'HTTP_ERROR',
+                    message: error.message,
+                };
+
+                if (data && typeof data === 'object') {
+                    return {
+                        ...data,
+                        status: data.status ?? error.response.status,
+                        statusCode: data.statusCode ?? error.response.status,
+                    };
+                }
+
+                return {
                     error: 'HTTP_ERROR',
                     status: error.response.status,
-                    message: error.message,
+                    statusCode: error.response.status,
+                    message: data || error.message,
                 };
             } else if (error.request) {
                 notifyError({
