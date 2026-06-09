@@ -50,7 +50,7 @@ const select_document_by_serie_number = async (tenant, serie, numero) => {
 const select_all_documents = async (tenant) => {
     try {
         if (!tenant) { return false; }
-        const docs = await pool.query(`SELECT id_document, json_format, states, type, response_send FROM ${tenant}.document WHERE states in ('N', 'X', 'M', 'S') AND type <> '80' ORDER BY id_document limit 100`);
+        const docs = await pool.query(`SELECT id_document, cod_sale, serie, numero, json_format, states, type, response_send, external_id FROM ${tenant}.document WHERE states in ('N', 'X', 'M', 'S') AND type <> '80' ORDER BY id_document limit 100`);
         if (!docs.rowCount) { return false; }
         return docs.rows;
 
@@ -366,8 +366,8 @@ const sendDoc = async (company, docu) => {
                 error:    new Error(typeof result.message === 'string' ? result.message : JSON.stringify(result.message)),
                 tenant:   company.tenant,
                 ruc:      company.company_number,
-                document: `${docu.serie}-${docu.numero}`,
-                payload:  { result, json_format: docu.json_format },
+                document: getDocumentLabel(docu),
+                payload:  getDocumentPayload(docu, result),
             });
         }
     } else {
@@ -383,8 +383,8 @@ const sendDoc = async (company, docu) => {
                 error:    new Error(`Documento rechazado: ${result.data.state_type_description}`),
                 tenant:   company.tenant,
                 ruc:      company.company_number,
-                document: `${docu.serie}-${docu.numero}`,
-                payload:  { result, json_format: docu.json_format },
+                document: getDocumentLabel(docu),
+                payload:  getDocumentPayload(docu, result),
             });
         }
 
@@ -503,6 +503,32 @@ const validarMensajeError = (response) => {
     return true; // No hay errores conocidos
 };
 
+const getDocumentLabel = (docu = {}) => {
+    if (docu.serie && docu.numero) {
+        return `${docu.serie}-${docu.numero}`;
+    }
+
+    if (docu.cod_sale) {
+        return docu.cod_sale;
+    }
+
+    if (docu.external_id) {
+        return docu.external_id;
+    }
+
+    return docu.id_document ? `ID:${docu.id_document}` : 'Documento sin identificador';
+};
+
+const getDocumentPayload = (docu = {}, result) => ({
+    result,
+    id_document: docu.id_document,
+    cod_sale: docu.cod_sale,
+    serie: docu.serie,
+    numero: docu.numero,
+    external_id: docu.external_id,
+    json_format: docu.json_format,
+});
+
 /**
  * Detecta si un resultado de envío es un error de autenticación/configuración irrecuperable.
  * Estos errores indican que la empresa tiene credenciales o URL incorrectas y no tiene
@@ -567,7 +593,8 @@ const sendAllDocsPerCompany = async (company, docus, options = {}) => {
                     error:   new Error(typeof result.message === 'string' ? result.message : JSON.stringify(result.message)),
                     tenant:  company.tenant,
                     ruc:     company.company_number,
-                    payload: { result },
+                    document: getDocumentLabel(docu),
+                    payload: getDocumentPayload(docu, result),
                 });
 
                 if (isCronSource) {
@@ -600,8 +627,8 @@ const sendAllDocsPerCompany = async (company, docus, options = {}) => {
                     error:    new Error(typeof result.message === 'string' ? result.message : JSON.stringify(result.message)),
                     tenant:   company.tenant,
                     ruc:      company.company_number,
-                    document: `${docu.serie}-${docu.numero}`,
-                    payload:  { result },
+                    document: getDocumentLabel(docu),
+                    payload:  getDocumentPayload(docu, result),
                 });
             }
             await update_document(docu.id_document, company.tenant, result)
