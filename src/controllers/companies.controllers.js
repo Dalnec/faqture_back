@@ -62,16 +62,16 @@ const getCompaniesList = async (req, res, next) => {
         let response;
         if (statusFilterActive) {
             response = await pool.query(
-                `SELECT id_company, company_number, company, tenant, state, cron_enabled, cron_failure_count
-                FROM company
-                ${whereSQL}
-                ORDER BY company ASC`,
+            `SELECT id_company, company_number, company, tenant, state, cron_enabled, cron_failure_count, source_type
+            FROM company
+            ${whereSQL}
+            ORDER BY company ASC`,
                 params
             );
         } else {
             const paginatedParams = [...params, limit, offset];
             response = await pool.query(
-                `SELECT id_company, company_number, company, tenant, state, cron_enabled, cron_failure_count
+                `SELECT id_company, company_number, company, tenant, state, cron_enabled, cron_failure_count, source_type
                 FROM company
                 ${whereSQL}
                 ORDER BY company ASC
@@ -163,7 +163,7 @@ const getCompaniestByFilters = async (req, res, next) => {
         const response = await pool.query(
             `SELECT id_company, created::text, company_number, company, tenant,
             url, token, localtoken, state, autosend, zenda_url, zenda_token, zenda_state, token_series, external_api,
-            cron_enabled, cron_failure_count
+            cron_enabled, cron_failure_count, source_type
             FROM public.company ${whereSQL} ORDER BY id_company
             LIMIT $${idx++} OFFSET $${idx++}`,
             [...params, itemsPerPage, (page - 1) * itemsPerPage]
@@ -196,18 +196,18 @@ const getCompanyId = async (req, res, next) => {
 const createCompany = async (req, res, next) => {
     try {
         const { company_number, company, url, token, tenant, autosend, zenda_url, zenda_token,
-            zenda_state, token_series, external_api } = req.body
+            zenda_state, token_series, external_api, source_type } = req.body
 
         // const localtoken = encrypt(tenant)
         const localtoken = await encryptPasword(tenant)
         const now = new Date()
 
         const response = await pool.query(
-            `INSERT INTO company(created, modified, company_number, company, url, token, localtoken, 
-                tenant, autosend, zenda_url, zenda_token, zenda_state, token_series, external_api) 
-            VALUES ( $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)`,
+            `INSERT INTO company(created, modified, company_number, company, url, token, localtoken,
+                tenant, autosend, zenda_url, zenda_token, zenda_state, token_series, external_api, source_type)
+            VALUES ( $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)`,
             [now, now, company_number, company, url, token, localtoken, tenant, autosend, zenda_url,
-                zenda_token, zenda_state, token_series, external_api]);
+                zenda_token, zenda_state, token_series, external_api, source_type]);
 
         const createdTenant = createTenantCompany(tenant);
         if (!createdTenant) {

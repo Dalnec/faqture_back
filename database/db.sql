@@ -85,6 +85,9 @@ ADD COLUMN cron_enabled BOOLEAN NOT NULL DEFAULT TRUE;
 -- cron_failure_count: contador de fallos consecutivos de autenticación en el cron (se resetea al éxito)
 ALTER TABLE public.company
 ADD COLUMN cron_failure_count SMALLINT NOT NULL DEFAULT 0;
+-- source_type: identifica el sistema de origen de los comprobantes (Zenda, FLizzy, Kenani, Farma, etc.)
+ALTER TABLE public.company
+ADD COLUMN source_type VARCHAR(50);
 -- TASK TABLE
 CREATE TABLE public.tasks(
     id_task SERIAL,
