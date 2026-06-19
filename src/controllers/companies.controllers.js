@@ -26,9 +26,10 @@ const { createTenantCompany } = require('./tenant.controllers')
 // }
 const getCompaniesList = async (req, res, next) => {
     try {
-        const { page = 1, itemsPerPage = 20, company, company_number, tenant } = req.query;
+        const { page = 1, itemsPerPage = 20, company, company_number, tenant,
+            has_new, has_send_error, has_void_error } = req.query;
 
-        // Construcción dinámica del filtro
+        // Construcción dinámica del filtro de texto
         let whereClauses = [];
         let params = [];
         let idx = 1; // contador para los parámetros $1, $2, etc
@@ -47,22 +48,39 @@ const getCompaniesList = async (req, res, next) => {
         }
 
         const whereSQL = whereClauses.length > 0 ? "WHERE " + whereClauses.join(" OR ") : "";
-        // 1. Obtener el total de empresas
+
+        const statusFilterActive = has_new === 'true' || has_send_error === 'true' || has_void_error === 'true';
+        const limit = Number(itemsPerPage);
+        const offset = (Number(page) - 1) * limit;
+
+        // 1. Obtener el total base de empresas (sin filtros de estado)
         const totalResult = await pool.query(`SELECT COUNT(*) AS total FROM company ${whereSQL}`, params);
-        const total = parseInt(totalResult.rows[0].total);
+        const baseTotal = parseInt(totalResult.rows[0].total);
 
-        // 2. Obtener las empresas paginadas
-        params.push(itemsPerPage, (page - 1) * itemsPerPage); // agregar limites
-        const response = await pool.query(
-            `SELECT id_company, company_number, company, tenant, state, cron_enabled, cron_failure_count
-            FROM company
-            ${whereSQL}
-            ORDER BY company ASC
-            LIMIT $${idx++} OFFSET $${idx++}`,
-            params
-        );
+        // 2. Obtener las empresas. Si hay filtro de estado, traemos todas para filtrar en memoria;
+        //    de lo contrario paginamos en SQL.
+        let response;
+        if (statusFilterActive) {
+            response = await pool.query(
+                `SELECT id_company, company_number, company, tenant, state, cron_enabled, cron_failure_count
+                FROM company
+                ${whereSQL}
+                ORDER BY company ASC`,
+                params
+            );
+        } else {
+            const paginatedParams = [...params, limit, offset];
+            response = await pool.query(
+                `SELECT id_company, company_number, company, tenant, state, cron_enabled, cron_failure_count
+                FROM company
+                ${whereSQL}
+                ORDER BY company ASC
+                LIMIT $${idx++} OFFSET $${idx++}`,
+                paginatedParams
+            );
+        }
 
-        // Ejecutar todas las consultas en paralelo
+        // 3. Calcular conteos por empresa
         const list = await Promise.all(
             response.rows.map(async (data) => {
                 // Validación opcional (solo letras, números y guiones bajos)
@@ -71,7 +89,7 @@ const getCompaniesList = async (req, res, next) => {
                 }
 
                 const statsQuery = `
-                SELECT 
+                SELECT
                     COUNT(states) FILTER (WHERE states = ANY ('{N,S,M}')) AS num_new,
                     COUNT(states) FILTER (WHERE states = 'P') AS num_void,
                     COUNT(states) FILTER (WHERE states = 'X') AS num_error,
@@ -88,13 +106,26 @@ const getCompaniesList = async (req, res, next) => {
             })
         );
 
-        // res.status(200).json(list);
-        // 4. Retornar datos + total
+        // 4. Aplicar filtros de estado en memoria si están activos
+        let filteredList = list;
+        if (statusFilterActive) {
+            filteredList = list.filter((item) => {
+                if (has_new === 'true' && Number(item.num_new) > 0) return true;
+                if (has_send_error === 'true' && Number(item.num_error) > 0) return true;
+                if (has_void_error === 'true' && Number(item.num_void_error) > 0) return true;
+                return false;
+            });
+        }
+
+        const total = statusFilterActive ? filteredList.length : baseTotal;
+        const data = statusFilterActive ? filteredList.slice(offset, offset + limit) : filteredList;
+
+        // 5. Retornar datos + total
         res.status(200).json({
             total,
             page: Number(page),
-            itemsPerPage: Number(itemsPerPage),
-            data: list
+            itemsPerPage: limit,
+            data
         });
     } catch (error) {
         console.error('Error in getCompaniesList:', error);
@@ -106,17 +137,39 @@ const getCompaniesList = async (req, res, next) => {
 
 const getCompaniestByFilters = async (req, res, next) => {
     try {
-        const { company, page, itemsPerPage } = req.query;
+        const { company, page, itemsPerPage, state, cron_enabled } = req.query;
 
-        filters = setFiltersORCompany(company)
+        let whereParts = [];
+        let params = [];
+        let idx = 1;
 
-        const response = await pool.query(`SELECT id_company, created::text, company_number, company, tenant, 
+        const textWhere = setFiltersORCompany(company);
+        if (textWhere) {
+            whereParts.push(textWhere.replace(/^WHERE\s+/, ''));
+        }
+
+        if (state !== undefined) {
+            whereParts.push(`state = $${idx++}`);
+            params.push(state === 'true');
+        }
+
+        if (cron_enabled !== undefined) {
+            whereParts.push(`cron_enabled = $${idx++}`);
+            params.push(cron_enabled === 'true');
+        }
+
+        const whereSQL = whereParts.length > 0 ? 'WHERE ' + whereParts.join(' AND ') : '';
+
+        const response = await pool.query(
+            `SELECT id_company, created::text, company_number, company, tenant,
             url, token, localtoken, state, autosend, zenda_url, zenda_token, zenda_state, token_series, external_api,
             cron_enabled, cron_failure_count
-            FROM public.company ${filters} ORDER BY id_company 
-        LIMIT ${itemsPerPage} OFFSET ${(page - 1) * itemsPerPage}`);
+            FROM public.company ${whereSQL} ORDER BY id_company
+            LIMIT $${idx++} OFFSET $${idx++}`,
+            [...params, itemsPerPage, (page - 1) * itemsPerPage]
+        );
 
-        const tocount = await pool.query(`SELECT * FROM public.company ${filters}`)
+        const tocount = await pool.query(`SELECT * FROM public.company ${whereSQL}`, params);
 
         res.json({
             page: page,
