@@ -27,7 +27,7 @@ const { createTenantCompany } = require('./tenant.controllers')
 const getCompaniesList = async (req, res, next) => {
     try {
         const { page = 1, itemsPerPage = 20, company, company_number, tenant,
-            has_new, has_send_error, has_void_error } = req.query;
+            has_new, has_send_error, has_void_error, has_modified, has_void, has_void_consult, has_guia_consult } = req.query;
 
         // Construcción dinámica del filtro de texto
         let whereClauses = [];
@@ -49,7 +49,8 @@ const getCompaniesList = async (req, res, next) => {
 
         const whereSQL = whereClauses.length > 0 ? "WHERE " + whereClauses.join(" OR ") : "";
 
-        const statusFilterActive = has_new === 'true' || has_send_error === 'true' || has_void_error === 'true';
+        const statusFilterActive = has_new === 'true' || has_send_error === 'true' || has_void_error === 'true'
+            || has_modified === 'true' || has_void === 'true' || has_void_consult === 'true' || has_guia_consult === 'true';
         const limit = Number(itemsPerPage);
         const offset = (Number(page) - 1) * limit;
 
@@ -90,11 +91,13 @@ const getCompaniesList = async (req, res, next) => {
 
                 const statsQuery = `
                 SELECT
-                    COUNT(states) FILTER (WHERE states = ANY ('{N,S,M}')) AS num_new,
+                    COUNT(states) FILTER (WHERE states = ANY ('{N,S}')) AS num_new,
+                    COUNT(states) FILTER (WHERE states = 'M') AS num_modified,
                     COUNT(states) FILTER (WHERE states = 'P') AS num_void,
                     COUNT(states) FILTER (WHERE states = 'X') AS num_error,
                     COUNT(states) FILTER (WHERE states = 'C') AS num_void_consult,
-                    COUNT(states) FILTER (WHERE states = 'Z') AS num_void_error
+                    COUNT(states) FILTER (WHERE states = 'Z') AS num_void_error,
+                    COUNT(states) FILTER (WHERE states = 'Y') AS num_guia_consult
                 FROM ${data.tenant}.document
                 `;
 
@@ -111,6 +114,10 @@ const getCompaniesList = async (req, res, next) => {
         if (statusFilterActive) {
             filteredList = list.filter((item) => {
                 if (has_new === 'true' && Number(item.num_new) > 0) return true;
+                if (has_modified === 'true' && Number(item.num_modified) > 0) return true;
+                if (has_void === 'true' && Number(item.num_void) > 0) return true;
+                if (has_void_consult === 'true' && Number(item.num_void_consult) > 0) return true;
+                if (has_guia_consult === 'true' && Number(item.num_guia_consult) > 0) return true;
                 if (has_send_error === 'true' && Number(item.num_error) > 0) return true;
                 if (has_void_error === 'true' && Number(item.num_void_error) > 0) return true;
                 return false;
