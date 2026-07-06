@@ -15,6 +15,7 @@ const routerApi = require('./routes/api.routes');
 const routerTasks = require('./routes/tasks.routes');
 const routerSettings = require('./routes/settings.routes');
 const routerWhatsapp = require('./routes/whatsapp.router');
+const routerFaqture = require('./routes/faqture.routes');
 const { initializeTaskManager } = require('./controllers/tasks.controllers');
 
 // Inicializar app
@@ -70,6 +71,7 @@ app.use(routerApi);
 app.use(routerTasks);
 app.use(routerSettings);
 app.use(routerWhatsapp);
+app.use(routerFaqture);
 
 // Manejo de rutas inexistentes (404)
 app.use((req, res) => {
