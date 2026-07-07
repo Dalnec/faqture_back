@@ -7,7 +7,7 @@ const reportError = async (req, res) => {
       return res.status(400).json({ error: 'client_id is required' });
     }
     const result = await pool.query(
-      'INSERT INTO faqture_errors (client_id, client_name, error_type, document_ref, error_message) VALUES ($1, $2, $3, $4, $3) RETURNING *',
+      'INSERT INTO faqture_errors (client_id, client_name, error_type, document_ref, error_message) VALUES ($1, $2, $3, $4, $5) RETURNING *',
       [client_id, client_name || null, error_type, document_ref, error_message]
     );
     res.status(201).json(result.rows[0]);
