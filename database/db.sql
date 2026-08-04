@@ -202,3 +202,19 @@ BEGIN
     END LOOP;
 END;
 $$ LANGUAGE plpgsql;
+
+-- --------------------------------------------------------
+-- SYSTEM LOGS TABLE
+-- --------------------------------------------------------
+CREATE TABLE public.system_logs (
+    id SERIAL PRIMARY KEY,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    tenant VARCHAR(150),
+    level VARCHAR(20) NOT NULL,
+    message TEXT NOT NULL,
+    meta JSONB
+);
+
+CREATE INDEX idx_system_logs_tenant ON public.system_logs(tenant);
+CREATE INDEX idx_system_logs_level ON public.system_logs(level);
+CREATE INDEX idx_system_logs_created_at ON public.system_logs(created_at DESC);

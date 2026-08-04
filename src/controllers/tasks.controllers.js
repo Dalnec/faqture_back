@@ -491,6 +491,17 @@ const sendallDocumentsCompanies = async (req, res, next) => {
     }
 };
 
+// Internal Cleanup Task (Runs daily at 3:00 AM)
+cron.schedule('0 3 * * *', async () => {
+    try {
+        console.log('🧹 Running system_logs cleanup task...');
+        const res = await pool.query(`DELETE FROM public.system_logs WHERE created_at < NOW() - INTERVAL '30 days'`);
+        console.log(`✅ Cleaned ${res.rowCount} old logs.`);
+    } catch (error) {
+        console.error('❌ Error in cleanup task:', error);
+    }
+}, { timezone: "America/Lima" });
+
 module.exports = {
     getTask,
     getTasks,

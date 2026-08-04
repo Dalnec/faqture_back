@@ -16,12 +16,12 @@ const routerTasks = require('./routes/tasks.routes');
 const routerSettings = require('./routes/settings.routes');
 const routerWhatsapp = require('./routes/whatsapp.router');
 const routerFaqture = require('./routes/faqture.routes');
+const routerLogs = require('./routes/logs.routes');
 const { initializeTaskManager } = require('./controllers/tasks.controllers');
 
 // Inicializar app
 const app = express();
 
-// Configuración
 const PORT = process.env.PORT || 4000;
 const URLDOCS = process.env.URLDOCS || `http://localhost:${PORT}`;
 
@@ -72,6 +72,7 @@ app.use(routerTasks);
 app.use(routerSettings);
 app.use(routerWhatsapp);
 app.use(routerFaqture);
+app.use(routerLogs);
 
 // Manejo de rutas inexistentes (404)
 app.use((req, res) => {

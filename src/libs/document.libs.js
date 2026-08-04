@@ -716,6 +716,14 @@ const sendAllAnulateDocsPerCompany = async (company, api, apif, listformat) => {
         if (!result.success) {
             result.state = 'Z'; //anulado con error
             num_error += 1;
+            notifyError({
+                type:     'Error al anular documento en PRO',
+                error:    new Error(typeof result.message === 'string' ? result.message : JSON.stringify(result.message)),
+                tenant:   company.tenant,
+                ruc:      company.company_number,
+                document: getDocumentLabel(docu),
+                payload:  getDocumentPayload(docu, result),
+            });
         } else {
             num_anulados += 1;
             result.state = 'C';
