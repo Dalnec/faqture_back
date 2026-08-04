@@ -162,12 +162,11 @@ const consultAnulateDocumentAll = async (req, res, next) => {
 
     const docs = await select_all_documents_to_consult_void(company.tenant)
     if (!docs)
-        res.status(405).json({ success: false, message: 'Error finding documents!' })
+        return res.status(405).json({ success: false, message: 'Error finding documents!' })
 
     const { num_anulados, num_error, num_error_updating } = await sendAllConsultVoidPerCompany(company, docs)
 
     const counting = await countingDocsState(company.tenant)
-    result.counting = counting
 
     return res.status(200).json({
         success: true,

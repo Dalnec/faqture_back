@@ -1,4 +1,5 @@
 const { notifyError } = require('../libs/logger');
+const logger = require('../utils/logger');
 
 /**
  * Middleware global de errores Express (4 parámetros).
@@ -14,6 +15,15 @@ const errorHandler = async (err, req, res, next) => {
         tenant,
         endpoint,
         payload:  req.body,
+    });
+
+    // Registrar en Winston (Archivo + DB)
+    logger.error({
+        message: err.message || 'Error no controlado',
+        tenant: tenant || 'system',
+        endpoint: endpoint,
+        stack: err.stack,
+        payload: req.body
     });
 
     if (res.headersSent) {
