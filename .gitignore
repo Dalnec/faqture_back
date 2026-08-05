@@ -8,3 +8,7 @@ ssh_key/
 logs/*.log
 logs/*.log.gz
 logs/*.json
+
+# Pruebas locales (Ignoradas en git)
+__tests__/
+jest.config.js
