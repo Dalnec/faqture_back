@@ -58,9 +58,15 @@ const anulateDocument = async (req, res, next) => {
     if (!company)
         return res.status(405).json({ success: false, message: `Company Error!` })
 
-    const format = await formatAnulate(req.body.id_document, company.tenant)
+    let format;
+    try {
+        format = await formatAnulate(req.body.id_document, company.tenant);
+    } catch (err) {
+        return res.status(400).json({ success: false, message: err.message });
+    }
+
     if (!format)
-        return res.status(405).json({ success: false, message: `Document Error1!` })
+        return res.status(400).json({ success: false, message: `Document Error1!` })
 
     let api;
     let type;

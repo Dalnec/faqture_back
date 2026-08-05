@@ -205,15 +205,25 @@ const formatAnulate = async (id, tenant) => {
     try {
         if (!id) { return false; }
 
-        const r = await pool.query(`SELECT id_document, json_format, response_send, type FROM ${tenant}.document WHERE id_document = $1`, [id]);
-        if (!r.rowCount) { return false; }
+        const r = await pool.query(`SELECT id_document, json_format, response_send, type, states FROM ${tenant}.document WHERE id_document = $1`, [id]);
+        if (!r.rowCount) { throw new Error('Documento no encontrado'); }
+
+        const docState = r.rows[0].states;
+        if (docState !== 'E' && docState !== 'P') {
+            throw new Error(`Operación denegada: El comprobante no se encuentra declarado en SUNAT (Estado actual: ${docState || 'Ninguno'}).`);
+        }
 
         const doc = JSON.parse(r.rows[0].json_format);
         const res = JSON.parse(r.rows[0].response_send);
 
+        let fechaLimpia = doc.fecha_de_emision || '';
+        if (fechaLimpia.length > 10) {
+            fechaLimpia = fechaLimpia.substring(0, 10);
+        }
+
         const format = {
             id_document: r.rows[0].id_document,
-            fecha_de_emision_de_documentos: doc.fecha_de_emision,
+            fecha_de_emision_de_documentos: fechaLimpia,
             ...((r.rows[0].type == '03') && { codigo_tipo_proceso: '3' }),// codigo_tipo_proceso: '3',
             documentos: [
                 {
@@ -225,7 +235,8 @@ const formatAnulate = async (id, tenant) => {
         return format;
 
     } catch (error) {
-        return false;
+        console.error('Error en formatAnulate:', error.message);
+        throw error; // Lanzar el error para que el controlador pueda atraparlo y mostrar el mensaje real
     }
 }
 
