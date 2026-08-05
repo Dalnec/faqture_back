@@ -2,6 +2,7 @@ const { createLogger, format, transports } = require('winston');
 require('winston-daily-rotate-file');
 const axios = require('axios');
 const path = require('path');
+const pool = require('../db');
 
 require('dotenv').config();
 
@@ -139,6 +140,19 @@ const notifyError = async (ctx = {}) => {
 
     // Siempre registrar en archivo
     logger.error(logCtx.type, logCtx);
+
+    // Guardar en la base de datos (módulo system_logs) para el frontend
+    try {
+        const query = `
+            INSERT INTO public.system_logs (tenant, level, message, meta)
+            VALUES ($1, $2, $3, $4)
+        `;
+        const meta = { type: logCtx.type, ruc: logCtx.ruc, document: logCtx.document, endpoint: logCtx.endpoint, payload: logCtx.payload, stack: logCtx.stack };
+        const values = [logCtx.tenant || 'system', 'error', logCtx.message, JSON.stringify(meta)];
+        pool.query(query, values).catch(err => console.error('Error insertando en system_logs:', err));
+    } catch (e) {
+        console.error('Error al intentar guardar log en BD:', e);
+    }
 
     // Enviar notificaciones de forma asíncrona (no bloquear el flujo principal)
     const text = buildPlainText({ ...logCtx, message, stack });

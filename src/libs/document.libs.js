@@ -76,7 +76,7 @@ const select_all_responses = async (tenant) => {
 const select_all_documents_to_anulate = async (tenant) => {
     try {
         if (!tenant) { return false; }
-        const docs = await pool.query(`SELECT id_document, json_format, states, response_send, type FROM ${tenant}.document WHERE states in ('P') ORDER BY id_document limit 50`);
+        const docs = await pool.query(`SELECT id_document, json_format, states, response_send, type FROM ${tenant}.document WHERE states in ('P', 'Z') ORDER BY id_document limit 50`);
         if (!docs.rowCount) { return false; }
         return docs.rows;
 
@@ -205,15 +205,25 @@ const formatAnulate = async (id, tenant) => {
     try {
         if (!id) { return false; }
 
-        const r = await pool.query(`SELECT id_document, json_format, response_send, type FROM ${tenant}.document WHERE id_document = $1`, [id]);
-        if (!r.rowCount) { return false; }
+        const r = await pool.query(`SELECT id_document, json_format, response_send, type, states FROM ${tenant}.document WHERE id_document = $1`, [id]);
+        if (!r.rowCount) { throw new Error('Documento no encontrado'); }
+
+        const docState = r.rows[0].states;
+        if (docState !== 'E' && docState !== 'P') {
+            throw new Error(`Operación denegada: El comprobante no se encuentra declarado en SUNAT (Estado actual: ${docState || 'Ninguno'}).`);
+        }
 
         const doc = JSON.parse(r.rows[0].json_format);
         const res = JSON.parse(r.rows[0].response_send);
 
+        let fechaLimpia = doc.fecha_de_emision || '';
+        if (fechaLimpia.length > 10) {
+            fechaLimpia = fechaLimpia.substring(0, 10);
+        }
+
         const format = {
             id_document: r.rows[0].id_document,
-            fecha_de_emision_de_documentos: doc.fecha_de_emision,
+            fecha_de_emision_de_documentos: fechaLimpia,
             ...((r.rows[0].type == '03') && { codigo_tipo_proceso: '3' }),// codigo_tipo_proceso: '3',
             documentos: [
                 {
@@ -225,7 +235,8 @@ const formatAnulate = async (id, tenant) => {
         return format;
 
     } catch (error) {
-        return false;
+        console.error('Error en formatAnulate:', error.message);
+        throw error; // Lanzar el error para que el controlador pueda atraparlo y mostrar el mensaje real
     }
 }
 
@@ -609,6 +620,16 @@ const sendAllDocsPerCompany = async (company, docus, options = {}) => {
 
             console.log("TASK", { result });
             result.state = 'X';
+            if (docu.states === 'S' || docu.original_intention === 'S') {
+                result.original_intention = 'S'; // Recordar que la intención original era anularlo
+            } else if (docu.response_send) {
+                try {
+                    const prevRes = JSON.parse(docu.response_send);
+                    if (prevRes.original_intention === 'S') {
+                        result.original_intention = 'S';
+                    }
+                } catch(e) {}
+            }
             num_error += 1;
 
             if (typeof result?.message === 'string') {
@@ -639,10 +660,23 @@ const sendAllDocsPerCompany = async (company, docus, options = {}) => {
                 await resetCronAuthFailure(company.id_company);
             }
 
-            if (docu.states == 'S')
+            // Determinar si el documento tenía intención de ser anulado
+            let isIntendedForAnulation = (docu.states === 'S');
+            if (!isIntendedForAnulation && docu.response_send) {
+                try {
+                    const prevRes = JSON.parse(docu.response_send);
+                    if (prevRes.original_intention === 'S') {
+                        isIntendedForAnulation = true;
+                    }
+                } catch(e) {}
+            }
+
+            if (isIntendedForAnulation) {
                 result.state = 'P';
-            else
+                result.original_intention = null; // Limpiar la memoria una vez que tuvo éxito
+            } else {
                 result.state = 'E';
+            }
 
             if (result.data.state_type_description == 'Rechazado') {
                 result.state = 'R';
