@@ -76,7 +76,7 @@ const select_all_responses = async (tenant) => {
 const select_all_documents_to_anulate = async (tenant) => {
     try {
         if (!tenant) { return false; }
-        const docs = await pool.query(`SELECT id_document, json_format, states, response_send, type FROM ${tenant}.document WHERE states in ('P') ORDER BY id_document limit 50`);
+        const docs = await pool.query(`SELECT id_document, json_format, states, response_send, type FROM ${tenant}.document WHERE states in ('P', 'Z') ORDER BY id_document limit 50`);
         if (!docs.rowCount) { return false; }
         return docs.rows;
 
