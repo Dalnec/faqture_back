@@ -620,6 +620,16 @@ const sendAllDocsPerCompany = async (company, docus, options = {}) => {
 
             console.log("TASK", { result });
             result.state = 'X';
+            if (docu.states === 'S' || docu.original_intention === 'S') {
+                result.original_intention = 'S'; // Recordar que la intención original era anularlo
+            } else if (docu.response_send) {
+                try {
+                    const prevRes = JSON.parse(docu.response_send);
+                    if (prevRes.original_intention === 'S') {
+                        result.original_intention = 'S';
+                    }
+                } catch(e) {}
+            }
             num_error += 1;
 
             if (typeof result?.message === 'string') {
@@ -650,10 +660,23 @@ const sendAllDocsPerCompany = async (company, docus, options = {}) => {
                 await resetCronAuthFailure(company.id_company);
             }
 
-            if (docu.states == 'S')
+            // Determinar si el documento tenía intención de ser anulado
+            let isIntendedForAnulation = (docu.states === 'S');
+            if (!isIntendedForAnulation && docu.response_send) {
+                try {
+                    const prevRes = JSON.parse(docu.response_send);
+                    if (prevRes.original_intention === 'S') {
+                        isIntendedForAnulation = true;
+                    }
+                } catch(e) {}
+            }
+
+            if (isIntendedForAnulation) {
                 result.state = 'P';
-            else
+                result.original_intention = null; // Limpiar la memoria una vez que tuvo éxito
+            } else {
                 result.state = 'E';
+            }
 
             if (result.data.state_type_description == 'Rechazado') {
                 result.state = 'R';
