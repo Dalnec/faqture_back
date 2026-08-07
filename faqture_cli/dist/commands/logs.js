@@ -94,7 +94,7 @@ exports.logsCommand = new commander_1.Command('logs')
 function generateReport(rows, tenant, isJson) {
     let errorDictionary = {};
     try {
-        const kbPath = path_1.default.join(__dirname, '../../kb.json');
+        const kbPath = path_1.default.join(__dirname, '../../docs/kb.json');
         if (fs_1.default.existsSync(kbPath)) {
             errorDictionary = JSON.parse(fs_1.default.readFileSync(kbPath, 'utf8'));
         }

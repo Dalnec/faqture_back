@@ -27,7 +27,8 @@ exports.documentsCommand = new commander_1.Command('documents')
             tenantsToQuery = companies.rows.map(r => r.tenant);
         }
         const allResults = [];
-        for (const tenant of tenantsToQuery) {
+        // Procesar en paralelo para mayor velocidad
+        const promises = tenantsToQuery.map(async (tenant) => {
             let query = `SELECT id_document, type, serie, states, date FROM ${tenant}.document`;
             const params = [];
             if (options.status) {
@@ -38,30 +39,33 @@ exports.documentsCommand = new commander_1.Command('documents')
             params.push(limit);
             try {
                 const res = await db_1.pool.query(query, params);
-                for (const row of res.rows) {
-                    allResults.push({
-                        Empresa: tenant,
-                        Tipo: row.type,
-                        Serie: row.serie,
-                        Estado: row.states,
-                        Emision: row.date ? new Date(row.date).toISOString().split('T')[0] : 'N/A'
-                    });
-                }
+                return res.rows.map(row => ({
+                    Empresa: tenant,
+                    Tipo: row.type,
+                    Serie: row.serie,
+                    Estado: row.states,
+                    Emision: row.date ? new Date(row.date).toISOString().split('T')[0] : 'N/A'
+                }));
             }
             catch (e) {
-                // Skip if schema doesn't exist
+                // Si el esquema no existe o no tiene la tabla
+                return [];
             }
+        });
+        const resultsArrays = await Promise.all(promises);
+        for (const arr of resultsArrays) {
+            allResults.push(...arr);
         }
         if (allResults.length === 0) {
             if (options.json)
                 console.log(JSON.stringify([]));
             else
                 console.log('📭 No se encontraron comprobantes con esos filtros.');
-            return;
+            process.exit(0);
         }
         // If querying all tenants, group and sort or just show top
         allResults.sort((a, b) => new Date(b.Emision).getTime() - new Date(a.Emision).getTime());
-        const finalResults = allResults.slice(0, limit);
+        const finalResults = options.report ? allResults : allResults.slice(0, limit);
         if (options.json) {
             console.log(JSON.stringify(finalResults));
         }
@@ -122,4 +126,6 @@ exports.documentsCommand = new commander_1.Command('documents')
         console.error('❌ Error consultando comprobantes:', error);
         process.exit(1);
     }
+    // Add process.exit(0) to prevent the DB pool from keeping the script alive
+    process.exit(0);
 });

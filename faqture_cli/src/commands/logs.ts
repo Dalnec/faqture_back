@@ -88,7 +88,7 @@ export const logsCommand = new Command('logs')
 function generateReport(rows: any[], tenant?: string, isJson?: boolean) {
   let errorDictionary: Record<string, any> = {};
   try {
-    const kbPath = path.join(__dirname, '../../kb.json');
+    const kbPath = path.join(__dirname, '../../docs/kb.json');
     if (fs.existsSync(kbPath)) {
       errorDictionary = JSON.parse(fs.readFileSync(kbPath, 'utf8'));
     }
