@@ -1,10 +1,16 @@
 const { Router } = require('express');
 const { verifyToken } = require("../middlewares/verifyToken");
-const { getSystemLogs } = require('../controllers/logs.controllers');
+const { getSystemLogs, getReportsList, downloadReport, deleteAllReports, deleteReport } = require('../controllers/logs.controllers');
 
 const router = Router();
 
 // Endpoint for the UI to fetch system logs
 router.get('/system-logs', [verifyToken], getSystemLogs);
+
+// Endpoints for CLI reports
+router.get('/system-logs/reports', [verifyToken], getReportsList);
+router.get('/system-logs/reports/:filename', [verifyToken], downloadReport);
+router.delete('/system-logs/reports', [verifyToken], deleteAllReports);
+router.delete('/system-logs/reports/:filename', [verifyToken], deleteReport);
 
 module.exports = router;
