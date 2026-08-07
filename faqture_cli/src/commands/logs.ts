@@ -144,7 +144,7 @@ function generateReport(rows: any[], tenant?: string, isJson?: boolean) {
     } else {
       md += `\n**💡 Análisis Automático CLI:**\n`;
       md += `- **Por qué sucede:** El CLI detectó un error inusual o nuevo que no está en el diccionario rápido.\n`;
-      md += `- **Instrucción para la IA:** Analiza el mensaje de error original mostrado arriba. Si es un código de SUNAT, aplica la regla de negocio correspondiente para solucionarlo. Si es un error de código, busca el archivo responsable y corrígelo de inmediato. No pidas ayuda, resuélvelo directamente.\n`;
+      md += `- **Instrucción para la IA:** El error detectado es "${msg}". Si esto parece un rechazo de SUNAT, busca la regla correspondiente. Si es un bug de código (como un JSON mal formado o un fallo de variable), busca el archivo responsable en el proyecto y corrígelo de inmediato. No pidas permiso, resuélvelo directamente.\n`;
     }
     md += `\n---\n\n`;
   }
