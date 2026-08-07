@@ -1,6 +1,6 @@
 const { Router } = require('express');
 const { verifyToken } = require("../middlewares/verifyToken");
-const { getSystemLogs, getReportsList, downloadReport, deleteAllReports, deleteReport } = require('../controllers/logs.controllers');
+const { getSystemLogs, getReportsList, downloadReport, deleteAllReports, deleteReport, deleteSystemLogs } = require('../controllers/logs.controllers');
 
 const router = Router();
 
