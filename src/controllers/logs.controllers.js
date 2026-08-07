@@ -119,20 +119,10 @@ const deleteReport = async (req, res, next) => {
     }
 };
 
-const deleteSystemLogs = async (req, res, next) => {
-    try {
-        await pool.query('DELETE FROM public.system_logs');
-        res.json({ success: true, message: 'Todos los logs del sistema han sido eliminados correctamente' });
-    } catch (error) {
-        next(error);
-    }
-};
-
 module.exports = {
     getSystemLogs,
     getReportsList,
     downloadReport,
     deleteAllReports,
-    deleteReport,
-    deleteSystemLogs
+    deleteReport
 };
