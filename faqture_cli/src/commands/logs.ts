@@ -9,6 +9,7 @@ export const logsCommand = new Command('logs')
   .option('-t, --tenant <tenant>', 'Filtrar por empresa específica')
   .option('-r, --report', 'Generar reporte Markdown para la IA en lugar de mostrar en consola')
   .option('-l, --limit <number>', 'Cantidad máxima de logs a mostrar', '100')
+  .option('-a, --all', 'Obtener absolutamente todos los logs sin límite')
   .option('-c, --clean', 'Limpiar los logs que tengan más de 30 días de antigüedad')
   .option('--json', 'Devuelve la salida en formato JSON puro (para pipes)')
   .option('-y, --yes', 'Omitir confirmación en acciones destructivas (logs --clean)')
@@ -36,7 +37,6 @@ export const logsCommand = new Command('logs')
         return;
       }
 
-      const limit = parseInt(options.limit, 10);
       let query = `
         SELECT tenant, level, message, meta, created_at
         FROM public.system_logs 
@@ -49,8 +49,12 @@ export const logsCommand = new Command('logs')
         query += ` AND tenant = $${params.length}`;
       }
       
-      query += ` ORDER BY created_at DESC LIMIT $${params.length + 1}`;
-      params.push(limit);
+      query += ` ORDER BY created_at DESC`;
+      if (!options.all) {
+        const limit = parseInt(options.limit, 10);
+        query += ` LIMIT $${params.length + 1}`;
+        params.push(limit);
+      }
 
       const res = await pool.query(query, params);
 
@@ -144,7 +148,7 @@ function generateReport(rows: any[], tenant?: string, isJson?: boolean) {
     } else {
       md += `\n**💡 Análisis Automático CLI:**\n`;
       md += `- **Por qué sucede:** El CLI detectó un error inusual o nuevo que no está en el diccionario rápido.\n`;
-      md += `- **Instrucción para la IA:** El error detectado es "${msg}". Si esto parece un rechazo de SUNAT, busca la regla correspondiente. Si es un bug de código (como un JSON mal formado o un fallo de variable), busca el archivo responsable en el proyecto y corrígelo de inmediato. No pidas permiso, resuélvelo directamente.\n`;
+      md += `- **Instrucción para la IA:** El error detectado es "${msg}". 1) Realiza un Análisis de Causa Raíz (RCA). 2) Identifica y explícale al usuario claramente si el error proviene internamente de Faqture (ej. Node.js, JSON mal formados) o si es un error devuelto por un sistema externo (Laravel/Pro o SUNAT). 3) Propón una solución para lo que se pueda arreglar dentro de Faqture. NUNCA escribas ni modifiques código inmediatamente; espera siempre la autorización y confirmación del usuario para proceder.\n`;
     }
     md += `\n---\n\n`;
   }

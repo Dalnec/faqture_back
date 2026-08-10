@@ -454,8 +454,31 @@ const sendDoc = async (company, docu) => {
             break;
     }
 
-    const api = new ApiClient(url, token)
-    result = await api.sendDocument(sanitizeGuiaFormat(docu))
+    const api = new ApiClient(url, token);
+    
+    // Primero, aplicamos sanitizeGuiaFormat (creado por el otro dev) para las Guías (tipos 09 y 31)
+    let payloadToSent = sanitizeGuiaFormat(docu);
+    
+    // Segundo, aplicamos nuestra sanitización para Facturas y Boletas (tipos 01 y 03) 
+    // que sanitizeGuiaFormat no cubre, usando su nueva función truncateAddress
+    try {
+        let payloadObj = typeof payloadToSent === 'string' ? JSON.parse(payloadToSent) : payloadToSent;
+
+        if (payloadObj && typeof payloadObj === 'object') {
+            if (payloadObj.delivery?.address) {
+                payloadObj.delivery.address = truncateAddress(payloadObj.delivery.address);
+            }
+            if (payloadObj.datos_del_cliente_o_receptor?.direccion) {
+                payloadObj.datos_del_cliente_o_receptor.direccion = truncateAddress(payloadObj.datos_del_cliente_o_receptor.direccion);
+            }
+
+            payloadToSent = typeof docu.json_format === 'string' ? JSON.stringify(payloadObj) : payloadObj;
+        }
+    } catch (e) {
+        console.error("Error sanitizing document payload:", e);
+    }
+
+    result = await api.sendDocument(payloadToSent);
 
     if (!result.success) {
         result.state = 'X'; //Error de envio al PRO

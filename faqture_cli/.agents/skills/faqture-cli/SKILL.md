@@ -19,6 +19,7 @@ Faqture CLI (`fq`) es una herramienta de terminal instalada en el servidor backe
 - `fq logs`: Muestra los últimos 100 errores en consola.
 - `fq logs -t <ruc>`: Filtra los errores para ver solo los de una empresa específica.
 - `fq logs --report`: Agrupa los errores y genera un reporte Markdown (ej. `logs-report-global-2026-08-07.md`).
+- `fq logs --all` o `-a`: Obtiene absolutamente todos los logs sin el límite predeterminado de 100. Puede combinarse con `--report`.
 - `fq logs -t <ruc> --report`: Genera el reporte Markdown pero filtrado por empresa.
 - `fq logs --clean`: Borra permanentemente los logs con más de 30 días de antigüedad.
 
