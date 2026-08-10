@@ -356,8 +356,32 @@ const sendDoc = async (company, docu) => {
             break;
     }
 
-    const api = new ApiClient(url, token)
-    result = await api.sendDocument(docu.json_format)
+    const api = new ApiClient(url, token);
+    
+    let payloadToSent = docu.json_format;
+    try {
+        let payloadObj = typeof payloadToSent === 'string' ? JSON.parse(payloadToSent) : payloadToSent;
+
+        if (payloadObj && typeof payloadObj === 'object') {
+            // Fix long addresses
+            if (payloadObj.delivery && payloadObj.delivery.address && typeof payloadObj.delivery.address === 'string') {
+                if (payloadObj.delivery.address.length > 100) {
+                    payloadObj.delivery.address = payloadObj.delivery.address.substring(0, 100);
+                }
+            }
+            if (payloadObj.datos_del_cliente_o_receptor && payloadObj.datos_del_cliente_o_receptor.direccion && typeof payloadObj.datos_del_cliente_o_receptor.direccion === 'string') {
+                if (payloadObj.datos_del_cliente_o_receptor.direccion.length > 100) {
+                    payloadObj.datos_del_cliente_o_receptor.direccion = payloadObj.datos_del_cliente_o_receptor.direccion.substring(0, 100);
+                }
+            }
+
+            payloadToSent = typeof docu.json_format === 'string' ? JSON.stringify(payloadObj) : payloadObj;
+        }
+    } catch (e) {
+        console.error("Error sanitizing document payload:", e);
+    }
+
+    result = await api.sendDocument(payloadToSent);
 
     if (!result.success) {
         result.state = 'X'; //Error de envio al PRO

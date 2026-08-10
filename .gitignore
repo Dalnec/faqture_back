@@ -12,3 +12,6 @@ logs/*.json
 # Pruebas locales (Ignoradas en git)
 __tests__/
 jest.config.js
+
+# Reportes del CLI
+faqture_cli/reports/
