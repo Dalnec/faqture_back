@@ -60,7 +60,7 @@ const anulateDocument = async (req, res, next) => {
 
     let format;
     try {
-        format = await formatAnulate(req.body.id_document, company.tenant);
+        format = await formatAnulate(req.body.id_document, company.tenant, company);
     } catch (err) {
         return res.status(400).json({ success: false, message: err.message });
     }
@@ -114,7 +114,7 @@ const anulateDocumentAll = async (req, res, next) => {
         return res.status(405).json({ success: false, message: `Company Error!` })
 
 
-    const listformat = await formatAnulatePerCompany(company.tenant)
+    const listformat = await formatAnulatePerCompany(company.tenant, company)
     if (!listformat)
         return res.status(405).json({ success: false, message: `No hay documentos Por Anular!` })
 

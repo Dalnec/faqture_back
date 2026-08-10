@@ -5,8 +5,48 @@ const { ApiSunat } = require('./apiApiSunat.libs');
 const { selectAllApiCompany, incrementCronAuthFailure, resetCronAuthFailure } = require('./company.libs');
 const { update_doc_api } = require('./connection');
 const { notifyError } = require('./logger');
+const { validateVoucherOnSunat, formatDateForSunat, translateSunatStatus, SUNAT_STATUS_LABELS } = require('./sunatValidation.libs');
 // const limit = require('p-limit');
 // const limiter = limit(10);
+
+const MAX_ADDRESS_LENGTH = 100;
+
+const truncateAddress = (value) => {
+    if (typeof value !== 'string') return value;
+    return value.length > MAX_ADDRESS_LENGTH ? value.slice(0, MAX_ADDRESS_LENGTH) : value;
+};
+
+const isPseInstance = (url = '') => /\.pse\.tsi\.pe/.test(url || '');
+
+const toDMY = (iso) => {
+    if (typeof iso !== 'string') return iso;
+    const m = iso.match(/^(\d{4})-(\d{2})-(\d{2})/);
+    return m ? `${m[3]}-${m[2]}-${m[1]}` : iso;
+};
+
+const isVoidedDocument = (type) => type !== '03';
+
+const sanitizeGuiaFormat = (docu) => {
+    if (!docu || (docu.type !== '09' && docu.type !== '31')) return docu.json_format;
+    try {
+        const json = JSON.parse(docu.json_format);
+        if (json.direccion_llegada?.direccion) {
+            json.direccion_llegada.direccion = truncateAddress(json.direccion_llegada.direccion);
+        }
+        if (json.direccion_partida?.direccion) {
+            json.direccion_partida.direccion = truncateAddress(json.direccion_partida.direccion);
+        }
+        if (json.datos_del_cliente_o_receptor?.direccion) {
+            json.datos_del_cliente_o_receptor.direccion = truncateAddress(json.datos_del_cliente_o_receptor.direccion);
+        }
+        if (json.datos_del_emisor?.direccion) {
+            json.datos_del_emisor.direccion = truncateAddress(json.datos_del_emisor.direccion);
+        }
+        return JSON.stringify(json);
+    } catch (error) {
+        return docu.json_format;
+    }
+};
 
 const select_document_by_id = async (id, tenant) => {
     try {
@@ -76,7 +116,7 @@ const select_all_responses = async (tenant) => {
 const select_all_documents_to_anulate = async (tenant) => {
     try {
         if (!tenant) { return false; }
-        const docs = await pool.query(`SELECT id_document, json_format, states, response_send, type FROM ${tenant}.document WHERE states in ('P', 'Z') ORDER BY id_document limit 50`);
+        const docs = await pool.query(`SELECT id_document, json_format, states, response_send, type, serie, numero, date, amount FROM ${tenant}.document WHERE states in ('P', 'Z') ORDER BY id_document limit 50`);
         if (!docs.rowCount) { return false; }
         return docs.rows;
 
@@ -201,7 +241,7 @@ const get_correlative_number = async (serie, tenant) => {
 }
 
 
-const formatAnulate = async (id, tenant) => {
+const formatAnulate = async (id, tenant, company = null) => {
     try {
         if (!id) { return false; }
 
@@ -221,9 +261,11 @@ const formatAnulate = async (id, tenant) => {
             fechaLimpia = fechaLimpia.substring(0, 10);
         }
 
+        const useDMY = isPseInstance(company?.url) && isVoidedDocument(r.rows[0].type);
+
         const format = {
             id_document: r.rows[0].id_document,
-            fecha_de_emision_de_documentos: fechaLimpia,
+            fecha_de_emision_de_documentos: useDMY ? toDMY(fechaLimpia) : fechaLimpia,
             ...((r.rows[0].type == '03') && { codigo_tipo_proceso: '3' }),// codigo_tipo_proceso: '3',
             documentos: [
                 {
@@ -241,7 +283,48 @@ const formatAnulate = async (id, tenant) => {
 }
 
 
-const formatAnulatePerCompany = async (tenant) => {
+const sunatAnulationCheckCache = new Map();
+const SUNAT_ANULATION_CHECK_TTL_MS = 12 * 60 * 60 * 1000;
+
+const shouldSkipAnulation = async (company, doc) => {
+    if (!company?.company_number) return null;
+
+    const cacheKey = `${company.tenant}:${doc.id_document}`;
+    const cached = sunatAnulationCheckCache.get(cacheKey);
+    if (cached && (Date.now() - cached.ts) < SUNAT_ANULATION_CHECK_TTL_MS) {
+        return cached.reason;
+    }
+
+    let reason = null;
+    try {
+        if (doc.type && doc.serie && doc.numero && doc.date && doc.amount != null) {
+            const response = await validateVoucherOnSunat({
+                ruc: company.company_number,
+                codigoComp: String(doc.type),
+                serie: doc.serie,
+                numero: doc.numero,
+                fechaEmision: formatDateForSunat(doc.date),
+                monto: Number(doc.amount),
+            });
+
+            const status = translateSunatStatus(response?.data?.estadoCp);
+            if (status === SUNAT_STATUS_LABELS.ANNULLED || status === SUNAT_STATUS_LABELS.REJECTED) {
+                reason = `CPE en estado "${status}" en SUNAT - anulación no procede`;
+            } else if (status === SUNAT_STATUS_LABELS.NOT_FOUND && doc.type === '01') {
+                reason = 'CPE no declarado en SUNAT - anulación omitida';
+            }
+
+            sunatAnulationCheckCache.set(cacheKey, { reason, ts: Date.now() });
+        }
+    } catch (error) {
+        // Si la validación SUNAT falla (API caída), no bloquear: se intenta anular igual
+        console.log('Error al verificar CPE en SUNAT (se intentará anular):', error.message);
+    }
+
+    return reason;
+};
+
+const formatAnulatePerCompany = async (tenant, company = null) => {
     try {
         if (!tenant) { return false; }
 
@@ -277,9 +360,24 @@ const formatAnulatePerCompany = async (tenant) => {
                 continue;
             }
 
+            // Verificar en SUNAT que el CPE esté declarado antes de anular
+            const skipReason = await shouldSkipAnulation(company, doc);
+            if (skipReason) {
+                console.log(`Anulación omitida: ${company?.tenant || tenant} doc ${doc.id_document} - ${skipReason}`);
+                await update_document_anulate(doc.id_document, tenant, {
+                    success: false,
+                    state: doc.states,
+                    skipped: true,
+                    message: skipReason,
+                    timestamp: new Date().toISOString(),
+                });
+                continue;
+            }
+
+            const useDMY = isPseInstance(company?.url) && isVoidedDocument(doc.type);
             let format = {
                 id_document: doc.id_document,
-                fecha_de_emision_de_documentos: docu.fecha_de_emision,
+                fecha_de_emision_de_documentos: useDMY ? toDMY(docu.fecha_de_emision) : docu.fecha_de_emision,
                 ...((doc.type == '03') && { codigo_tipo_proceso: '3' }),
                 documentos: [
                     {
@@ -358,21 +456,20 @@ const sendDoc = async (company, docu) => {
 
     const api = new ApiClient(url, token);
     
-    let payloadToSent = docu.json_format;
+    // Primero, aplicamos sanitizeGuiaFormat (creado por el otro dev) para las Guías (tipos 09 y 31)
+    let payloadToSent = sanitizeGuiaFormat(docu);
+    
+    // Segundo, aplicamos nuestra sanitización para Facturas y Boletas (tipos 01 y 03) 
+    // que sanitizeGuiaFormat no cubre, usando su nueva función truncateAddress
     try {
         let payloadObj = typeof payloadToSent === 'string' ? JSON.parse(payloadToSent) : payloadToSent;
 
         if (payloadObj && typeof payloadObj === 'object') {
-            // Fix long addresses
-            if (payloadObj.delivery && payloadObj.delivery.address && typeof payloadObj.delivery.address === 'string') {
-                if (payloadObj.delivery.address.length > 100) {
-                    payloadObj.delivery.address = payloadObj.delivery.address.substring(0, 100);
-                }
+            if (payloadObj.delivery?.address) {
+                payloadObj.delivery.address = truncateAddress(payloadObj.delivery.address);
             }
-            if (payloadObj.datos_del_cliente_o_receptor && payloadObj.datos_del_cliente_o_receptor.direccion && typeof payloadObj.datos_del_cliente_o_receptor.direccion === 'string') {
-                if (payloadObj.datos_del_cliente_o_receptor.direccion.length > 100) {
-                    payloadObj.datos_del_cliente_o_receptor.direccion = payloadObj.datos_del_cliente_o_receptor.direccion.substring(0, 100);
-                }
+            if (payloadObj.datos_del_cliente_o_receptor?.direccion) {
+                payloadObj.datos_del_cliente_o_receptor.direccion = truncateAddress(payloadObj.datos_del_cliente_o_receptor.direccion);
             }
 
             payloadToSent = typeof docu.json_format === 'string' ? JSON.stringify(payloadObj) : payloadObj;
@@ -472,7 +569,7 @@ const checkDispatchStatusTicket = async (company, docu_response) => {
 const processDispatchStateN = async (company, docu) => {
     const result = await sendDoc(company, docu);
     console.log({ result });
-    if (result?.message?.search('ya se encuentra registrado') > 0) {
+    if (typeof result?.message === 'string' && result.message.search('ya se encuentra registrado') > 0) {
         console.log('Documento ya registrado N');
         const doc = await select_document_by_id(docu.id_document, company.tenant);
         return { ...result, doc };
@@ -493,7 +590,7 @@ const processDispatchStateY = async (company, docu) => {
     parsed.id_document = docu.id_document;
     const { result, doc } = await sendDispatch(company, parsed);
     if (!result.success) {
-        throw new Error("Error al enviar Guia a SUNAT");
+        throw new Error(`Error al enviar Guia a SUNAT: ${typeof result.message === 'string' ? result.message : JSON.stringify(result.message)}`);
     }
     // return processDispatchStateE(company, doc);
     return { ...result, doc };
@@ -523,14 +620,18 @@ const validarMensajeError = (response) => {
         'SQLSTATE[23000]: Integrity constraint violation:',
         'El tipo doc. identidad Doc.trib.no.dom.sin.ruc del cliente no es válido.',
         'fecha de emisión no puede ser menor',
-        'Integrity constraint violation: 1062 Duplicate entry'
+        'Integrity constraint violation: 1062 Duplicate entry',
+        'Trying to access array offset on value of type null',
+        'Division by zero',
+        'Could not resolve host',
+        'cURL error'
     ];
 
     // Verificar si el mensaje contiene alguno de los errores
     const mensaje = response.message || '';
 
     for (let error of mensajesError) {
-        if (mensaje.includes(error)) {
+        if (typeof mensaje === 'string' && mensaje.includes(error)) {
             return false; // Error detectado
         }
     }
@@ -618,7 +719,7 @@ const sendAllDocsPerCompany = async (company, docus, options = {}) => {
                 break;
         }
         api = new ApiClient(url, company.token)
-        result = await api.sendDocument(docu.json_format)
+        result = await api.sendDocument(sanitizeGuiaFormat(docu))
 
         if (!result.success) {
             // Detectar fallo de autenticación → abortar empresa y registrar fallo
@@ -779,8 +880,8 @@ const sendAllAnulateDocsPerCompany = async (company, api, apif, listformat) => {
                 error:    new Error(typeof result.message === 'string' ? result.message : JSON.stringify(result.message)),
                 tenant:   company.tenant,
                 ruc:      company.company_number,
-                document: getDocumentLabel(docu),
-                payload:  getDocumentPayload(docu, result),
+                document: getDocumentLabel(format),
+                payload:  getDocumentPayload(format, result),
             });
         } else {
             num_anulados += 1;
@@ -871,7 +972,7 @@ const sendAllAnulateDocsAllCompanies = async () => {
                     console.log(company.tenant, "missing url/token — skipping");
                     continue;
                 }
-                const listformat = await formatAnulatePerCompany(company.tenant)
+                const listformat = await formatAnulatePerCompany(company.tenant, company)
                 if (listformat.length > 0) {
                     const api_doc = await update_doc_api(null, company.url)
                     const api = new ApiClient(`${company.url}/api/summaries`, company.token)
