@@ -148,7 +148,7 @@ function generateReport(rows, tenant, isJson) {
         else {
             md += `\n**💡 Análisis Automático CLI:**\n`;
             md += `- **Por qué sucede:** El CLI detectó un error inusual o nuevo que no está en el diccionario rápido.\n`;
-            md += `- **Instrucción para la IA:** El error detectado es "${msg}". Si esto parece un rechazo de SUNAT, busca la regla correspondiente. Si es un bug de código (como un JSON mal formado o un fallo de variable), busca el archivo responsable en el proyecto y corrígelo de inmediato. No pidas permiso, resuélvelo directamente.\n`;
+            md += `- **Instrucción para la IA:** El error detectado es "${msg}". 1) Realiza un Análisis de Causa Raíz (RCA). 2) Identifica y explícale al usuario claramente si el error proviene internamente de Faqture (ej. Node.js, JSON mal formados) o si es un error devuelto por un sistema externo (Laravel/Pro o SUNAT). 3) Propón una solución para lo que se pueda arreglar dentro de Faqture. NUNCA escribas ni modifiques código inmediatamente; espera siempre la autorización y confirmación del usuario para proceder.\n`;
         }
         md += `\n---\n\n`;
     }
