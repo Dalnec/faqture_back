@@ -9,6 +9,7 @@ export const logsCommand = new Command('logs')
   .option('-t, --tenant <tenant>', 'Filtrar por empresa específica')
   .option('-r, --report', 'Generar reporte Markdown para la IA en lugar de mostrar en consola')
   .option('-l, --limit <number>', 'Cantidad máxima de logs a mostrar', '100')
+  .option('-a, --all', 'Obtener absolutamente todos los logs sin límite')
   .option('-c, --clean', 'Limpiar los logs que tengan más de 30 días de antigüedad')
   .option('--json', 'Devuelve la salida en formato JSON puro (para pipes)')
   .option('-y, --yes', 'Omitir confirmación en acciones destructivas (logs --clean)')
@@ -36,7 +37,6 @@ export const logsCommand = new Command('logs')
         return;
       }
 
-      const limit = parseInt(options.limit, 10);
       let query = `
         SELECT tenant, level, message, meta, created_at
         FROM public.system_logs 
@@ -49,8 +49,12 @@ export const logsCommand = new Command('logs')
         query += ` AND tenant = $${params.length}`;
       }
       
-      query += ` ORDER BY created_at DESC LIMIT $${params.length + 1}`;
-      params.push(limit);
+      query += ` ORDER BY created_at DESC`;
+      if (!options.all) {
+        const limit = parseInt(options.limit, 10);
+        query += ` LIMIT $${params.length + 1}`;
+        params.push(limit);
+      }
 
       const res = await pool.query(query, params);
 
