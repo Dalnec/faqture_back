@@ -119,6 +119,8 @@ const deleteReport = async (req, res, next) => {
     }
 };
 
+const { exec } = require('child_process');
+
 const deleteSystemLogs = async (req, res, next) => {
     try {
         await pool.query('DELETE FROM public.system_logs');
@@ -128,11 +130,49 @@ const deleteSystemLogs = async (req, res, next) => {
     }
 };
 
+const generateReport = async (req, res, next) => {
+    try {
+        const cliPath = path.join(__dirname, '../../faqture_cli');
+        const cmd = 'node dist/index.js logs --report --all --json';
+        
+        exec(cmd, { cwd: cliPath }, (error, stdout, stderr) => {
+            if (error) {
+                console.error(`exec error: ${error}`);
+                return res.status(500).json({ success: false, message: 'Error al generar reporte: ' + error.message });
+            }
+            try {
+                // El stdout puede tener múltiples líneas si hay advertencias de Node, buscaremos la que parece JSON.
+                const jsonStr = stdout.split('\n').find(line => {
+                    const t = line.trim();
+                    return t.startsWith('{') || t.startsWith('[');
+                });
+                if (!jsonStr) throw new Error("No JSON found in stdout");
+                
+                const result = JSON.parse(jsonStr);
+                
+                // Si devuelve un array vacío, no hay errores
+                if (Array.isArray(result) && result.length === 0) {
+                    return res.status(200).json({ success: true, filepath: null, message: 'No hay errores recientes para generar un reporte.' });
+                }
+                
+                res.status(200).json(result);
+            } catch(e) {
+                console.error('Error parsing CLI output:', stdout);
+                res.status(500).json({ success: false, message: 'Error parsing CLI output', output: stdout });
+            }
+        });
+    } catch (error) {
+        console.error('Error in generateReport:', error);
+        res.status(500).json({ success: false, message: error.message });
+    }
+};
+
 module.exports = {
     getSystemLogs,
     getReportsList,
     downloadReport,
     deleteAllReports,
     deleteReport,
-    deleteSystemLogs
+    deleteSystemLogs,
+    generateReport
 };
