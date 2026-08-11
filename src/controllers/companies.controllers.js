@@ -251,6 +251,15 @@ const updateCompany = async (req, res, next) => {
 
         if (data.invoice_status === 'Pagado') {
             shouldReactivate = true;
+            
+            // Auto-renovación: adelantar 1 mes y volver a Pendiente
+            if (data.invoice_date) {
+                const parts = data.invoice_date.split('-');
+                let d = new Date(parts[0], parts[1] - 1, parts[2]);
+                d.setMonth(d.getMonth() + 1);
+                data.invoice_date = d.toISOString().split('T')[0];
+                data.invoice_status = 'Pendiente';
+            }
         }
 
         if (data.invoice_date && data.invoice_status === 'Pendiente') {
