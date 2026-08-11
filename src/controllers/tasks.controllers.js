@@ -5,6 +5,7 @@ const { setNewValues } = require('../libs/functions')
 const { getBackup } = require('../libs/backup.libs');
 const { uploadFile, searchFile, updateFile } = require('../libs/drive.libs');
 const { sendAllDocsAllCompanies, sendAllAnulateDocsAllCompanies, consultAllAnulateDocsAllCompanies } = require('../libs/document.libs');
+const { verifyCompanyPayments } = require('../libs/company.libs');
 
 // ========== CLASE TASKMANAGER MEJORADA ==========
 class TaskManager {
@@ -499,6 +500,17 @@ cron.schedule('0 3 * * *', async () => {
         console.log(`✅ Cleaned ${res.rowCount} old logs.`);
     } catch (error) {
         console.error('❌ Error in cleanup task:', error);
+    }
+}, { timezone: "America/Lima" });
+
+// Internal Verify Payments Task (Runs daily at 00:01 AM)
+cron.schedule('1 0 * * *', async () => {
+    try {
+        console.log('💲 Running verifyCompanyPayments task...');
+        await verifyCompanyPayments();
+        console.log('✅ verifyCompanyPayments completed.');
+    } catch (error) {
+        console.error('❌ Error in verifyCompanyPayments task:', error);
     }
 }, { timezone: "America/Lima" });
 

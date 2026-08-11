@@ -63,7 +63,7 @@ const getCompaniesList = async (req, res, next) => {
         let response;
         if (statusFilterActive) {
             response = await pool.query(
-            `SELECT id_company, company_number, company, tenant, state, cron_enabled, cron_failure_count, source_type
+            `SELECT id_company, invoice_date::text AS invoice_date, invoice_status, cron_disable_reason, company_number, company, tenant, state, cron_enabled, cron_failure_count, source_type
             FROM company
             ${whereSQL}
             ORDER BY company ASC`,
@@ -72,7 +72,7 @@ const getCompaniesList = async (req, res, next) => {
         } else {
             const paginatedParams = [...params, limit, offset];
             response = await pool.query(
-                `SELECT id_company, company_number, company, tenant, state, cron_enabled, cron_failure_count, source_type
+                `SELECT id_company, invoice_date::text AS invoice_date, invoice_status, cron_disable_reason, company_number, company, tenant, state, cron_enabled, cron_failure_count, source_type
                 FROM company
                 ${whereSQL}
                 ORDER BY company ASC
@@ -168,7 +168,7 @@ const getCompaniestByFilters = async (req, res, next) => {
         const whereSQL = whereParts.length > 0 ? 'WHERE ' + whereParts.join(' AND ') : '';
 
         const response = await pool.query(
-            `SELECT id_company, created::text, company_number, company, tenant,
+            `SELECT id_company, invoice_date::text AS invoice_date, invoice_status, cron_disable_reason, created::text, company_number, company, tenant,
             url, token, localtoken, state, autosend, zenda_url, zenda_token, zenda_state, token_series, external_api,
             cron_enabled, cron_failure_count, source_type
             FROM public.company ${whereSQL} ORDER BY id_company
@@ -211,10 +211,10 @@ const createCompany = async (req, res, next) => {
 
         const response = await pool.query(
             `INSERT INTO company(created, modified, company_number, company, url, token, localtoken,
-                tenant, autosend, zenda_url, zenda_token, zenda_state, token_series, external_api, source_type)
-            VALUES ( $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)`,
+                tenant, autosend, zenda_url, zenda_token, zenda_state, token_series, external_api, source_type, invoice_date, invoice_status)
+            VALUES ( $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)`,
             [now, now, company_number, company, url, token, localtoken, tenant, autosend, zenda_url,
-                zenda_token, zenda_state, token_series, external_api, source_type]);
+                zenda_token, zenda_state, token_series, external_api, source_type, (() => { const d = new Date(); d.setMonth(d.getMonth() + 1); return d.toISOString().split('T')[0]; })(), 'Pendiente']);
 
         const createdTenant = createTenantCompany(tenant);
         if (!createdTenant) {
@@ -236,8 +236,43 @@ const updateCompany = async (req, res, next) => {
         const id = parseInt(req.params.id);
         const data = { ...req.body };
 
+        const allowedColumns = ['company_number', 'company', 'url', 'token', 'tenant', 'autosend', 'zenda_url', 'zenda_token', 'zenda_state', 'token_series', 'external_api', 'source_type', 'invoice_date', 'invoice_status', 'cron_enabled', 'cron_failure_count', 'cron_disable_reason', 'state'];
+        Object.keys(data).forEach(key => {
+            if (!allowedColumns.includes(key)) {
+                delete data[key];
+            }
+        });
+
         if (data.cron_enabled === true) {
             data.cron_failure_count = 0;
+        }
+
+        let shouldReactivate = false;
+
+        if (data.invoice_status === 'Pagado') {
+            shouldReactivate = true;
+        }
+
+        if (data.invoice_date && data.invoice_status === 'Pendiente') {
+            // Fix timezone parsing
+            const dateParts = data.invoice_date.split('-');
+            const newDate = new Date(dateParts[0], dateParts[1] - 1, dateParts[2]);
+            const today = new Date();
+            today.setHours(0,0,0,0);
+            if (newDate >= today) {
+                shouldReactivate = true;
+            }
+        }
+
+        if (shouldReactivate) {
+            const currentRes = await pool.query('SELECT cron_disable_reason FROM company WHERE id_company = $1', [id]);
+            const currentReason = currentRes.rows[0]?.cron_disable_reason;
+            // Reactivate only if blocked due to payment or not blocked
+            if (currentReason === 'Falta de pago' || !currentReason) {
+                data.cron_disable_reason = null;
+                data.autosend = true;
+                data.cron_enabled = true;
+            }
         }
 
         const keys = Object.keys(data);
