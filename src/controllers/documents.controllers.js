@@ -140,15 +140,22 @@ const createDocument = async (req, res, next) => {
             result = await sendDoc(apiCompany, response.rows[0])
         }
 
-        res.status(200).json({
+        let responsePayload = {
             success: true,
             data: {
                 cod_sale: response.rows[0].cod_sale,
                 filename: `${company_number}-${response.rows[0].type}-${response.rows[0].serie}-${response.rows[0].numero}`,
                 state: result.state ? result.state : 'N',
-                external_id: external_id
+                external_id: external_id,
+                ...((numero_documento === '#') && { numero_documento: numero })
             }
-        })
+        };
+
+        if (apiCompany?.cron_disable_reason === 'Falta de pago') {
+            responsePayload.data.message = 'El comprobante ha sido recepcionado pero aún no ha sido declarado por falta de pago';
+        }
+
+        res.status(200).json(responsePayload);
     } catch (error) {
         // Duplicate key: el documento ya existe → retornar el existente con información correcta
         if (error.code === '23505' && error.constraint === 'document_serie_numero_key') {

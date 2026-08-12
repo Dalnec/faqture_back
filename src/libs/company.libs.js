@@ -8,7 +8,7 @@ const selectApiCompanyById = async (id) => {
 
         const company = await pool.query(
             `SELECT url, token, tenant, autosend, token_series, external_api,
-                    company_number, company, state, address, cron_enabled, cron_failure_count
+                    company_number, company, state, address, cron_enabled, cron_failure_count, cron_disable_reason
              FROM public.company WHERE state=true AND id_company = $1`,
             [id]
         );
@@ -130,6 +130,33 @@ const resetCronAuthFailure = async (id_company) => {
     }
 };
 
+/**
+ * Evalúa todas las empresas para determinar si su fecha de pago ha expirado.
+ * Desactiva autosend y cron_enabled para las empresas morosas.
+ */
+const verifyCompanyPayments = async () => {
+    try {
+        const result = await pool.query(
+            `UPDATE public.company
+             SET cron_enabled = false, 
+                 autosend = false, 
+                 cron_disable_reason = 'Falta de pago',
+                 modified = NOW()
+             WHERE invoice_date < CURRENT_DATE 
+               AND invoice_status = 'Pendiente'
+             RETURNING id_company, company`
+        );
+        
+        if (result.rowCount > 0) {
+            console.log(`[CRON] Se han bloqueado ${result.rowCount} empresas por falta de pago.`);
+        }
+        return result.rows;
+    } catch (error) {
+        console.error('[CRON] Error verificando pagos de empresas:', error);
+        return [];
+    }
+};
+
 module.exports = {
     selectApiCompanyById,
     selectAllApiCompany,
@@ -138,5 +165,6 @@ module.exports = {
     getCompanyByTenant,
     incrementCronAuthFailure,
     resetCronAuthFailure,
+    verifyCompanyPayments,
     CRON_AUTH_FAILURE_THRESHOLD,
 };
