@@ -144,7 +144,7 @@ const getCompaniesList = async (req, res, next) => {
 
 const getCompaniestByFilters = async (req, res, next) => {
     try {
-        const { company, page, itemsPerPage, state, cron_enabled } = req.query;
+        const { company, page = 1, itemsPerPage = 20, state, cron_enabled } = req.query;
 
         let whereParts = [];
         let params = [];

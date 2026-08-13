@@ -395,7 +395,6 @@ const validateSalesRange = async (req, res, next) => {
             message: error.message,
         });
     }
-    }
 };
 
 const validateSunatSingle = async (req, res, next) => {
@@ -420,10 +419,10 @@ const validateSunatSingle = async (req, res, next) => {
         const sunatResponse = await validateVoucherOnSunat({
             ruc: company.company_number,
             codigoComp: docu.type,
-            numeroSerie: docu.serie,
-            numeroComp: docu.number,
+            serie: docu.serie,
+            numero: docu.numero,
             fechaEmision: fechaEmision,
-            monto: docu.total || 0,
+            monto: docu.amount || 0,
         });
 
         const estadoCp = sunatResponse?.data?.estadoCp;
