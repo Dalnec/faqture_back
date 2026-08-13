@@ -98,16 +98,19 @@ const createDocument = async (req, res, next) => {
     try {
         const strdocument = JSON.stringify(req.body, null, 4)
         const document = req.body
-        const { codigo_tipo_documento } = document
+        const { codigo_tipo_documento, id_venta, fecha_de_emision, hora_de_emision, serie_documento, numero_documento } = document
 
         if (!codigo_tipo_documento) {
             return res.status(400).json({ error: "El codigo de documento es requerido" });
         }
+        if (!id_venta) {
+            return res.status(400).json({ error: "El campo id_venta (cod_sale) es requerido" });
+        }
+        if (!numero_documento) {
+            return res.status(400).json({ error: "El campo numero_documento es requerido" });
+        }
         let response;
         let values;
-
-        const { id_venta, fecha_de_emision, hora_de_emision, serie_documento,
-            numero_documento } = document
 
         const now = new Date()
         const date = `${fecha_de_emision} ${hora_de_emision}`
@@ -117,6 +120,12 @@ const createDocument = async (req, res, next) => {
 
         if (codigo_tipo_documento !== '31') {
             const { datos_del_cliente_o_receptor, totales } = document
+            if (!datos_del_cliente_o_receptor?.numero_documento) {
+                return res.status(400).json({ error: "El campo datos_del_cliente_o_receptor.numero_documento es requerido" });
+            }
+            if (!datos_del_cliente_o_receptor?.apellidos_y_nombres_o_razon_social) {
+                return res.status(400).json({ error: "El campo datos_del_cliente_o_receptor.apellidos_y_nombres_o_razon_social es requerido" });
+            }
             const total_venta = totales ? totales.total_venta : 0
             values = [now, now, date, id_venta, codigo_tipo_documento, serie_documento,
                 numero_documento, datos_del_cliente_o_receptor.numero_documento,
@@ -124,6 +133,12 @@ const createDocument = async (req, res, next) => {
                 total_venta, states, JSON.stringify(strdocument, null, 4), company, external_id]
         } else {
             const { datos_remitente } = document
+            if (!datos_remitente?.numero_documento) {
+                return res.status(400).json({ error: "El campo datos_remitente.numero_documento es requerido" });
+            }
+            if (!datos_remitente?.apellidos_y_nombres_o_razon_social) {
+                return res.status(400).json({ error: "El campo datos_remitente.apellidos_y_nombres_o_razon_social es requerido" });
+            }
             values = [now, now, date, id_venta, codigo_tipo_documento, serie_documento,
                 numero_documento, datos_remitente.numero_documento,
                 datos_remitente.apellidos_y_nombres_o_razon_social,

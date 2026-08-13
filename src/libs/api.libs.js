@@ -17,7 +17,7 @@ class ApiClient {
                 'Content-Type': 'application/json',
             },
             httpsAgent: this.agent,
-            timeout: 10000,
+            timeout: 30000,
             // validateStatus: () => true, // optional: treat all HTTP statuses as resolved
         };
     }

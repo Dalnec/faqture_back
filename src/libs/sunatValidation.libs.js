@@ -121,7 +121,7 @@ const getSunatToken = async () => {
                 'Content-Type': 'application/x-www-form-urlencoded',
                 Accept: 'application/json',
             },
-            timeout: 10000,
+            timeout: 30000,
         });
 
         const token = response?.data?.access_token;
@@ -162,7 +162,7 @@ const validateVoucherOnSunat = async ({ ruc, codigoComp, serie, numero, fechaEmi
                 'Content-Type': 'application/json',
                 Accept: 'application/json',
             },
-            timeout: 15000,
+            timeout: 30000,
         });
 
         return response.data;

@@ -285,9 +285,18 @@ const formatAnulate = async (id, tenant, company = null) => {
 
 const sunatAnulationCheckCache = new Map();
 const SUNAT_ANULATION_CHECK_TTL_MS = 12 * 60 * 60 * 1000;
+const ANULATION_MAX_AGE_DAYS = 8;
 
 const shouldSkipAnulation = async (company, doc) => {
     if (!company?.company_number) return null;
+
+    // Tope de edad: SUNAT no admite bajas de comprobantes antiguos
+    if (doc.date) {
+        const ageDays = (Date.now() - new Date(doc.date).getTime()) / (24 * 60 * 60 * 1000);
+        if (ageDays > ANULATION_MAX_AGE_DAYS) {
+            return `Documento con más de ${ANULATION_MAX_AGE_DAYS} días de antigüedad - anulación omitida`;
+        }
+    }
 
     const cacheKey = `${company.tenant}:${doc.id_document}`;
     const cached = sunatAnulationCheckCache.get(cacheKey);
@@ -308,10 +317,10 @@ const shouldSkipAnulation = async (company, doc) => {
             });
 
             const status = translateSunatStatus(response?.data?.estadoCp);
-            if (status === SUNAT_STATUS_LABELS.ANNULLED || status === SUNAT_STATUS_LABELS.REJECTED) {
-                reason = `CPE en estado "${status}" en SUNAT - anulación no procede`;
-            } else if (status === SUNAT_STATUS_LABELS.NOT_FOUND && doc.type === '01') {
-                reason = 'CPE no declarado en SUNAT - anulación omitida';
+            if (status === SUNAT_STATUS_LABELS.NOT_FOUND || status === SUNAT_STATUS_LABELS.ANNULLED || status === SUNAT_STATUS_LABELS.REJECTED) {
+                reason = status === SUNAT_STATUS_LABELS.NOT_FOUND
+                    ? 'CPE no declarado en SUNAT - anulación omitida'
+                    : `CPE en estado "${status}" en SUNAT - anulación no procede`;
             }
 
             sunatAnulationCheckCache.set(cacheKey, { reason, ts: Date.now() });
@@ -624,7 +633,10 @@ const validarMensajeError = (response) => {
         'Trying to access array offset on value of type null',
         'Division by zero',
         'Could not resolve host',
-        'cURL error'
+        'cURL error',
+        'No query results for model',
+        'file_get_contents',
+        'Is a directory'
     ];
 
     // Verificar si el mensaje contiene alguno de los errores
