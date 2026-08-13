@@ -395,7 +395,52 @@ const validateSalesRange = async (req, res, next) => {
             message: error.message,
         });
     }
+    }
 };
+
+const validateSunatSingle = async (req, res, next) => {
+    try {
+        const { id_company, id_document, external_id } = req.body;
+        const company = await selectApiCompanyById(id_company);
+        if (!company) {
+            return res.json({ success: false, message: 'Company Error!' });
+        }
+        
+        const docu = await select_document_by_id(id_document, company.tenant);
+        if (!docu) {
+            return res.json({ success: false, message: 'Document Finding Error!' });
+        }
+
+        if (!docu.type || !docu.date) {
+            return res.json({ success: false, message: 'Comprobante sin tipo o fecha para validar en SUNAT' });
+        }
+
+        const fechaEmision = formatDateForSunat(docu.date);
+        
+        const sunatResponse = await validateVoucherOnSunat({
+            ruc: company.company_number,
+            codigoComp: docu.type,
+            numeroSerie: docu.serie,
+            numeroComp: docu.number,
+            fechaEmision: fechaEmision,
+            monto: docu.total || 0,
+        });
+
+        const estadoCp = sunatResponse?.data?.estadoCp;
+        const sunat_status = translateSunatStatus(estadoCp);
+
+        if (sunat_status === SUNAT_STATUS_LABELS.NOT_FOUND || !sunatResponse.success || estadoCp === '2') {
+            docu.state = 'N';
+            await update_document(id_document, company.tenant, docu);
+            return res.json({ success: true, message: 'No encontrado en SUNAT. Estado actualizado a N para reenvío.' });
+        } else {
+             return res.json({ success: true, message: `El comprobante existe en SUNAT con estado: ${sunat_status}` });
+        }
+    } catch (error) {
+        console.error(error);
+        return res.status(500).json({ success: false, message: 'Error interno del servidor', error: error.message });
+    }
+}
 
 module.exports = {
     sendDocument,
@@ -408,4 +453,5 @@ module.exports = {
     verifyMySqlConnection,
     getCustomerData,
     validateSalesRange,
+    validateSunatSingle,
 };
