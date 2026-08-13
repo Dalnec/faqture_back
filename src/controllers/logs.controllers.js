@@ -10,9 +10,9 @@ const getSystemLogs = async (req, res, next) => {
         let countQuery = 'SELECT COUNT(*) FROM public.system_logs WHERE 1=1';
 
         if (tenant) {
-            queryParams.push(tenant);
-            query += ` AND tenant = $${queryParams.length}`;
-            countQuery += ` AND tenant = $${queryParams.length}`;
+            queryParams.push(`%${tenant.trim()}%`);
+            query += ` AND (tenant ILIKE $${queryParams.length} OR message ILIKE $${queryParams.length})`;
+            countQuery += ` AND (tenant ILIKE $${queryParams.length} OR message ILIKE $${queryParams.length})`;
         }
 
         if (level) {
