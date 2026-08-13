@@ -51,7 +51,7 @@ const sanitizeGuiaFormat = (docu) => {
 const select_document_by_id = async (id, tenant) => {
     try {
         if (!tenant) { return false; }
-        const docs = await pool.query(`SELECT id_document, json_format, response_send, response_anulate, states, type, external_id FROM ${tenant}.document WHERE id_document=$1`, [id]);
+        const docs = await pool.query(`SELECT id_document, json_format, response_send, response_anulate, states, type, external_id, serie, numero, date, amount FROM ${tenant}.document WHERE id_document=$1`, [id]);
         if (!docs.rowCount) { return false; }
         return docs.rows[0];
 

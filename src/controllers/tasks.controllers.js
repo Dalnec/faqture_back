@@ -57,6 +57,10 @@ class TaskManager {
             4: async () => {
                 console.log('----- taskbackup running ----- ');
                 await getBackup();
+            },
+            6: async () => {
+                console.log('----- taskVerifyPayments running ----- ');
+                await verifyCompanyPayments();
             }
         };
 
@@ -503,16 +507,6 @@ cron.schedule('0 3 * * *', async () => {
     }
 }, { timezone: "America/Lima" });
 
-// Internal Verify Payments Task (Runs daily at 00:01 AM)
-cron.schedule('1 0 * * *', async () => {
-    try {
-        console.log('💲 Running verifyCompanyPayments task...');
-        await verifyCompanyPayments();
-        console.log('✅ verifyCompanyPayments completed.');
-    } catch (error) {
-        console.error('❌ Error in verifyCompanyPayments task:', error);
-    }
-}, { timezone: "America/Lima" });
 
 module.exports = {
     getTask,

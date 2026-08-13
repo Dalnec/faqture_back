@@ -17,7 +17,7 @@ class ApiClient {
                 'Content-Type': 'application/json',
             },
             httpsAgent: this.agent,
-            timeout: 30000,
+            timeout: 35000,
             // validateStatus: () => true, // optional: treat all HTTP statuses as resolved
         };
     }
@@ -57,7 +57,7 @@ class ApiClient {
             } else if (error.request) {
                 // Request made, no response — problema de red/timeout
                 notifyError({
-                    type:    'Error API externa - sin respuesta (sendDocument)',
+                    type: 'Error API externa - sin respuesta (sendDocument)',
                     error,
                     payload: { url: this.config.url },
                 });
@@ -68,7 +68,7 @@ class ApiClient {
                 };
             } else {
                 notifyError({
-                    type:    'Error API externa - configuración de request (sendDocument)',
+                    type: 'Error API externa - configuración de request (sendDocument)',
                     error,
                     payload: { url: this.config.url },
                 });
@@ -111,7 +111,7 @@ class ApiClient {
                 };
             } else if (error.request) {
                 notifyError({
-                    type:    'Error API externa - sin respuesta (getListDocumentByDate)',
+                    type: 'Error API externa - sin respuesta (getListDocumentByDate)',
                     error,
                     payload: { url },
                 });
@@ -122,7 +122,7 @@ class ApiClient {
                 };
             } else {
                 notifyError({
-                    type:    'Error API externa - configuración de request (getListDocumentByDate)',
+                    type: 'Error API externa - configuración de request (getListDocumentByDate)',
                     error,
                     payload: { url },
                 });
