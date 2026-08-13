@@ -311,39 +311,6 @@ const updateCompany = async (req, res, next) => {
             message: "Company Updated"
         })
     } catch (error) {
-        console.log(error);
-        res.json({ error });
-    }
-};
-
-const deleteCompany = async (req, res, next) => {
-    try {
-        const id = parseInt(req.params.id);
-        const response = await pool.query('SELECT * FROM public.company WHERE id_company = $1', [id]);
-        await pool.query('DELETE FROM company where id_company = $1', [id]);
-        await pool.query(`DROP SCHEMA IF EXISTS ${response.rows[0].tenant} CASCADE`);
-        res.json({
-            state: 'success',
-            message: "Company Deleted"
-        })
-    } catch (error) {
-        res.json({ error: error.message });
-        next();
-    }
-};
-
-const clearCompanyDocs = async (req, res, next) => {
-    try {
-        const id = parseInt(req.params.id);
-        const response = await pool.query('SELECT * FROM public.company WHERE id_company = $1', [id]);
-        await pool.query(`DELETE FROM ${response.rows[0].tenant}.document`);
-        await pool.query(`ALTER SEQUENCE ${response.rows[0].tenant}.document_id_document_seq RESTART WITH 1`);
-        res.json({
-            state: 'success',
-            message: "Company Docs Cleared!"
-        })
-    } catch (error) {
-        res.json({ error: error.message });
         next();
     }
 };
@@ -365,6 +332,7 @@ const disableAutoSendCompanies = async (req, res, next) => {
         next();
     }
 };
+
 
 
 const generateToken = async (req, res, next) => {
@@ -410,11 +378,43 @@ const leerExcel = async (req, res, next) => {
         state: 'success',
         message: "Companies Created"
     });
-    // console.log(dataExcel);
-    // res.json({
-    //     dataExcel
-    // })
 }
+
+const deleteCompany = async (req, res, next) => {
+    try {
+        const id = parseInt(req.params.id);
+        const response = await pool.query('SELECT * FROM public.company WHERE id_company = $1', [id]);
+        if (response.rows[0] && /^[a-zA-Z0-9_]+$/.test(response.rows[0].tenant)) {
+            await pool.query('DELETE FROM company where id_company = $1', [id]);
+            await pool.query(`DROP SCHEMA IF EXISTS ${response.rows[0].tenant} CASCADE`);
+        }
+        res.json({
+            state: 'success',
+            message: "Company Deleted"
+        });
+    } catch (error) {
+        res.json({ error: error.message });
+        next();
+    }
+};
+
+const clearCompanyDocs = async (req, res, next) => {
+    try {
+        const id = parseInt(req.params.id);
+        const response = await pool.query('SELECT * FROM public.company WHERE id_company = $1', [id]);
+        if (response.rows[0] && /^[a-zA-Z0-9_]+$/.test(response.rows[0].tenant)) {
+            await pool.query(`DELETE FROM ${response.rows[0].tenant}.document`);
+            await pool.query(`ALTER SEQUENCE ${response.rows[0].tenant}.document_id_document_seq RESTART WITH 1`);
+        }
+        res.json({
+            state: 'success',
+            message: "Company Docs Cleared!"
+        });
+    } catch (error) {
+        res.json({ error: error.message });
+        next();
+    }
+};
 
 module.exports = {
     getCompaniestByFilters,
