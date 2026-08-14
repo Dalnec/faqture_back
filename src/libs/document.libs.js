@@ -100,6 +100,18 @@ const select_all_documents = async (tenant) => {
     }
 }
 
+const select_error_documents = async (tenant) => {
+    try {
+        if (!tenant) { return false; }
+        const docs = await pool.query(`SELECT id_document, cod_sale, serie, numero, json_format, states, type, response_send, external_id, date, amount FROM ${tenant}.document WHERE states IN ('X', 'M', 'S', 'Z') AND type <> '80' ORDER BY id_document ASC LIMIT 50`);
+        if (!docs.rowCount) { return false; }
+        return docs.rows;
+    } catch (error) {
+        console.error(`[CRON Task 7] Error al consultar comprobantes con error en ${tenant}:`, error.message);
+        return false;
+    }
+}
+
 const select_all_responses = async (tenant) => {
     try {
         if (!tenant) { return false; }
@@ -1196,11 +1208,61 @@ const countingDocsState = async (tenant) => {
     } catch (error) {
         return false;
     }
-}
+};
+
+let isProcessingErrorCron = false;
+const verifyErrorDocsAllCompanies = async (options = {}) => {
+    if (isProcessingErrorCron) {
+        console.log('[CRON Task 7] Previa ejecución en proceso, omitiendo ciclo...');
+        return;
+    }
+
+    isProcessingErrorCron = true;
+    try {
+        const { executeUnifiedValidation } = require('../controllers/api.controllers');
+        const companies = await selectAllApiCompany();
+        for (let company of companies) {
+            try {
+                if (company.state && company.url && company.token) {
+                    const errorDocs = await select_error_documents(company.tenant);
+                    if (errorDocs && errorDocs.length > 0) {
+                        console.log(`[CRON Task 7] Procesando ${errorDocs.length} comprobantes con error para ${company.tenant}`);
+                        let num_procesados = 0;
+                        let num_exitosos = 0;
+
+                        for (let docu of errorDocs) {
+                            try {
+                                const res = await executeUnifiedValidation(company, docu);
+                                num_procesados++;
+                                if (res.success) num_exitosos++;
+                            } catch (docErr) {
+                                console.error(`[CRON Task 7] Error validando doc ${docu.id_document} en ${company.tenant}:`, docErr.message);
+                            }
+                        }
+
+                        console.log({
+                            company: company.tenant,
+                            message: 'Verificación de Comprobantes con Error Finalizada',
+                            procesados: num_procesados,
+                            regularizados: num_exitosos
+                        });
+                    }
+                }
+            } catch (companyError) {
+                console.error(`[CRON Task 7] Error procesando empresa ${company.tenant}:`, companyError?.message);
+            }
+        }
+    } catch (error) {
+        console.error('[CRON Task 7] Error en verifyErrorDocsAllCompanies:', error);
+    } finally {
+        isProcessingErrorCron = false;
+    }
+};
 
 module.exports = {
     select_document_by_id,
     select_all_documents,
+    select_error_documents,
     update_document,
     update_document_anulate,
     update_document_state,
@@ -1228,4 +1290,5 @@ module.exports = {
     processDispatchStateY,
     processDispatchStateE,
     consultAllAnulateDocsAllCompanies,
+    verifyErrorDocsAllCompanies,
 };

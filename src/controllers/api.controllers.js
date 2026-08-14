@@ -657,6 +657,204 @@ const forceSendProToSunat = async (req, res, next) => {
     }
 };
 
+const executeUnifiedValidation = async (company, docu) => {
+    const id_document = docu.id_document;
+    if (docu.type === '80') {
+        return { success: false, message: 'Las Notas de Venta (tipo 80) son documentos internos y no se registran ante SUNAT ni el PRO.' };
+    }
+
+    if (docu.type === '09' || docu.type === '31') {
+        return { success: false, message: 'Las Guías de Remisión (tipo 09/31) se procesan por el módulo de Guías.' };
+    }
+
+    const serieClean = String(docu.serie || '').trim();
+    const numeroClean = String(docu.numero || '').trim();
+    let fechaBase = docu.date;
+    try {
+        if (docu.json_format) {
+            const parsed = typeof docu.json_format === 'string' ? JSON.parse(docu.json_format) : docu.json_format;
+            if (parsed.fecha_de_emision) fechaBase = parsed.fecha_de_emision;
+        }
+    } catch (e) {}
+
+    const fechaEmision = formatDateForSunat(fechaBase);
+
+    // PASO 1: Preguntar a SUNAT (Fuente de Verdad Principal)
+    let sunatResponse = null;
+    let sunatNetworkError = false;
+    try {
+        sunatResponse = await validateVoucherOnSunat({
+            ruc: company.company_number,
+            codigoComp: docu.type,
+            serie: serieClean,
+            numero: numeroClean,
+            fechaEmision: fechaEmision,
+            monto: docu.amount || 0,
+        });
+    } catch (sunatErr) {
+        console.error('Error al consultar SUNAT directamente:', sunatErr.message);
+        sunatNetworkError = true;
+    }
+
+    const estadoCp = String(sunatResponse?.data?.estadoCp || '');
+
+    if (estadoCp === '1' || estadoCp === '3') {
+        await update_document_state(id_document, company.tenant, { id: id_document, state: 'E' });
+        return { 
+            success: true, 
+            sunat_status: 'ACEPTADO',
+            final_state: 'E',
+            message: '✅ SUNAT: El comprobante existe y está ACEPTADO en SUNAT. Estado local sincronizado a Enviado (E).' 
+        };
+    } else if (estadoCp === '2') {
+        await update_document_state(id_document, company.tenant, { id: id_document, state: 'A' });
+        return { 
+            success: true, 
+            sunat_status: 'ANULADO',
+            final_state: 'A',
+            message: '🔴 SUNAT: El comprobante existe y está ANULADO en SUNAT. Estado local sincronizado a Anulado (A).' 
+        };
+    } else if (estadoCp === '4') {
+        await update_document_state(id_document, company.tenant, { id: id_document, state: 'R' });
+        return { 
+            success: true, 
+            sunat_status: 'RECHAZADO',
+            final_state: 'R',
+            message: '❌ SUNAT: El comprobante fue RECHAZADO por SUNAT. Estado local actualizado a Rechazado (R).' 
+        };
+    }
+
+    // PASO 2: SUNAT responde No Encontrado (0) o Error de Red. Verificar en PRO.
+    if (!company.url || !company.token) {
+        let nextState = ['A', 'S', 'P', 'C', 'Z'].includes(docu.states) ? 'S' : 'N';
+        await update_document_state(id_document, company.tenant, { id: id_document, state: nextState });
+        return { 
+            success: false, 
+            message: `No encontrado en SUNAT. La empresa no cuenta con URL/Token del PRO para verificar. Estado local: ${nextState}.` 
+        };
+    }
+
+    let dateObj = new Date(fechaEmision);
+    if (Number.isNaN(dateObj.getTime())) {
+        dateObj = new Date(docu.date);
+    }
+
+    const dayBefore = new Date(dateObj.getTime() - 86400000).toISOString().slice(0, 10);
+    const dayAfter = new Date(dateObj.getTime() + 86400000).toISOString().slice(0, 10);
+
+    const api = new ApiClient(`${company.url}/api/documents/lists/`, company.token);
+    const apidocs = await api.getListDocumentByDate(`${company.url}/api/documents/lists/${dayBefore}/${dayAfter}`);
+
+    const formattedSerieNum = `${serieClean}-${numeroClean}`;
+    const formattedPadded = `${serieClean}-${numeroClean.padStart(8, '0')}`;
+
+    const match = Array.isArray(apidocs?.data) ? apidocs.data.find(el => {
+        if (docu.external_id && el.external_id === docu.external_id) return true;
+        if (el.number === formattedSerieNum || el.number === formattedPadded) return true;
+        if (el.filename && el.filename.includes(`${serieClean}-${numeroClean}`)) return true;
+        return false;
+    }) : null;
+
+    // PASO 3 & 4: Regularizar PRO y Faqture
+    if (match) {
+        const stateTypeId = String(match.state_type_id || '');
+        const hasCdr = match.has_cdr === true || (match.has_cdr !== false && !!match.download_cdr);
+
+        if (stateTypeId === '05' && hasCdr) {
+            await update_document_state(id_document, company.tenant, { id: id_document, state: 'E' });
+            return { 
+                success: true, 
+                sunat_status: 'NO_ENCONTRADO_DIRECTO',
+                pro_status: 'ACEPTADO',
+                final_state: 'E',
+                message: '✅ PRO: El comprobante figura ACEPTADO con CDR en el PRO. Estado sincronizado a Enviado (E).' 
+            };
+        } else if (stateTypeId === '11') {
+            await update_document_state(id_document, company.tenant, { id: id_document, state: 'A' });
+            return { 
+                success: true, 
+                sunat_status: 'NO_ENCONTRADO_DIRECTO',
+                pro_status: 'ANULADO',
+                final_state: 'A',
+                message: '🔴 PRO: El comprobante figura ANULADO en el PRO. Estado sincronizado a Anulado (A).' 
+            };
+        } else if (stateTypeId === '09') {
+            await update_document_state(id_document, company.tenant, { id: id_document, state: 'R' });
+            return { 
+                success: true, 
+                sunat_status: 'NO_ENCONTRADO_DIRECTO',
+                pro_status: 'RECHAZADO',
+                final_state: 'R',
+                message: '❌ PRO: El comprobante fue RECHAZADO por SUNAT en el PRO. Estado sincronizado a Rechazado (R).' 
+            };
+        }
+
+        if (sunatNetworkError) {
+            await update_document_state(id_document, company.tenant, { id: id_document, state: 'Y' });
+            return { 
+                success: true, 
+                sunat_status: 'ERROR_RED',
+                pro_status: 'REGISTRADO',
+                final_state: 'Y',
+                message: `⚠️ No se pudo verificar en SUNAT por error de red. El comprobante figura en el PRO y se mantiene en estado Y.` 
+            };
+        }
+
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+        const dateEmisionObj = new Date(docu.date);
+        dateEmisionObj.setHours(0, 0, 0, 0);
+        const diffDays = Math.floor((today.getTime() - dateEmisionObj.getTime()) / (1000 * 60 * 60 * 24));
+        let limitDays = (docu.type === '01' || serieClean.toUpperCase().startsWith('F')) ? 3 : 30;
+
+        if (diffDays > limitDays) {
+            await update_document_state(id_document, company.tenant, { id: id_document, state: 'Y' });
+            return { 
+                success: true, 
+                sunat_status: 'NO_ENCONTRADO',
+                pro_status: 'REGISTRADO_PLAZO_VENCIDO',
+                final_state: 'Y',
+                message: `⚠️ El comprobante está en el PRO pero superó el plazo máximo de envío a SUNAT (${limitDays} días). Queda en estado Y.` 
+            };
+        }
+
+        const sendResult = await sendDoc(company, docu);
+
+        if (sendResult.state === 'E' || sendResult.state === 'P' || sendResult.success || (typeof sendResult.message === 'string' && sendResult.message.includes('ya se encuentra registrado'))) {
+            const finalSt = sendResult.state || 'E';
+            await update_document_state(id_document, company.tenant, { id: id_document, state: finalSt });
+            return { 
+                success: true, 
+                sunat_status: 'DECLARADO',
+                pro_status: 'ACEPTADO',
+                final_state: finalSt,
+                message: `⚡ REGULARIZADO: Comprobante forzado y declarado a SUNAT exitosamente (Estado: ${finalSt}).` 
+            };
+        } else {
+            await update_document_state(id_document, company.tenant, { id: id_document, state: 'Y' });
+            const errMsg = typeof sendResult.message === 'string' ? sendResult.message : JSON.stringify(sendResult.message);
+            return { 
+                success: false, 
+                sunat_status: 'NO_ENCONTRADO',
+                pro_status: 'PENDIENTE',
+                final_state: 'Y',
+                message: `⚠️ Comprobante registrado en PRO pero falló al declarar a SUNAT: ${errMsg}. Queda en estado Y.` 
+            };
+        }
+    } else {
+        const isAnulation = ['A', 'S', 'P', 'C', 'Z'].includes(docu.states);
+        const targetState = isAnulation ? 'S' : 'N';
+        await update_document_state(id_document, company.tenant, { id: id_document, state: targetState });
+        return { 
+            success: true, 
+            sunat_status: 'NO_ENCONTRADO',
+            pro_status: 'NO_EXISTE',
+            final_state: targetState,
+            message: `ℹ️ El comprobante NO EXISTE en SUNAT ni en el PRO. Estado sincronizado a ${targetState} para envío.` 
+        };
+    }
+};
+
 const validateUnifiedSingle = async (req, res, next) => {
     try {
         const { id_company, id_document } = req.body;
@@ -670,200 +868,8 @@ const validateUnifiedSingle = async (req, res, next) => {
             return res.json({ success: false, message: 'Document Finding Error!' });
         }
 
-        if (docu.type === '80') {
-            return res.json({ success: false, message: 'Las Notas de Venta (tipo 80) son documentos internos y no se registran ante SUNAT ni el PRO.' });
-        }
-
-        if (docu.type === '09' || docu.type === '31') {
-            return res.json({ success: false, message: 'Las Guías de Remisión (tipo 09/31) se procesan por el módulo de Guías.' });
-        }
-
-        const serieClean = String(docu.serie || '').trim();
-        const numeroClean = String(docu.numero || '').trim();
-        let fechaBase = docu.date;
-        try {
-            if (docu.json_format) {
-                const parsed = typeof docu.json_format === 'string' ? JSON.parse(docu.json_format) : docu.json_format;
-                if (parsed.fecha_de_emision) fechaBase = parsed.fecha_de_emision;
-            }
-        } catch (e) {}
-
-        const fechaEmision = formatDateForSunat(fechaBase);
-
-        // PASO 1: Preguntar a SUNAT (Fuente de Verdad Principal)
-        let sunatResponse = null;
-        let sunatNetworkError = false;
-        try {
-            sunatResponse = await validateVoucherOnSunat({
-                ruc: company.company_number,
-                codigoComp: docu.type,
-                serie: serieClean,
-                numero: numeroClean,
-                fechaEmision: fechaEmision,
-                monto: docu.amount || 0,
-            });
-        } catch (sunatErr) {
-            console.error('Error al consultar SUNAT directamente:', sunatErr.message);
-            sunatNetworkError = true;
-        }
-
-        const estadoCp = String(sunatResponse?.data?.estadoCp || '');
-
-        if (estadoCp === '1' || estadoCp === '3') {
-            await update_document_state(id_document, company.tenant, { id: id_document, state: 'E' });
-            return res.json({ 
-                success: true, 
-                sunat_status: 'ACEPTADO',
-                final_state: 'E',
-                message: '✅ SUNAT: El comprobante existe y está ACEPTADO en SUNAT. Estado local sincronizado a Enviado (E).' 
-            });
-        } else if (estadoCp === '2') {
-            await update_document_state(id_document, company.tenant, { id: id_document, state: 'A' });
-            return res.json({ 
-                success: true, 
-                sunat_status: 'ANULADO',
-                final_state: 'A',
-                message: '🔴 SUNAT: El comprobante existe y está ANULADO en SUNAT. Estado local sincronizado a Anulado (A).' 
-            });
-        } else if (estadoCp === '4') {
-            await update_document_state(id_document, company.tenant, { id: id_document, state: 'R' });
-            return res.json({ 
-                success: true, 
-                sunat_status: 'RECHAZADO',
-                final_state: 'R',
-                message: '❌ SUNAT: El comprobante fue RECHAZADO por SUNAT. Estado local actualizado a Rechazado (R).' 
-            });
-        }
-
-        // PASO 2: SUNAT responde No Encontrado (0) o Error de Red. Verificar en PRO.
-        if (!company.url || !company.token) {
-            let nextState = ['A', 'S', 'P', 'C', 'Z'].includes(docu.states) ? 'S' : 'N';
-            await update_document_state(id_document, company.tenant, { id: id_document, state: nextState });
-            return res.json({ 
-                success: false, 
-                message: `No encontrado en SUNAT. La empresa no cuenta con URL/Token del PRO para verificar. Estado local: ${nextState}.` 
-            });
-        }
-
-        let dateObj = new Date(fechaEmision);
-        if (Number.isNaN(dateObj.getTime())) {
-            dateObj = new Date(docu.date);
-        }
-
-        const dayBefore = new Date(dateObj.getTime() - 86400000).toISOString().slice(0, 10);
-        const dayAfter = new Date(dateObj.getTime() + 86400000).toISOString().slice(0, 10);
-
-        const api = new ApiClient(`${company.url}/api/documents/lists/`, company.token);
-        const apidocs = await api.getListDocumentByDate(`${company.url}/api/documents/lists/${dayBefore}/${dayAfter}`);
-
-        const formattedSerieNum = `${serieClean}-${numeroClean}`;
-        const formattedPadded = `${serieClean}-${numeroClean.padStart(8, '0')}`;
-
-        const match = Array.isArray(apidocs?.data) ? apidocs.data.find(el => {
-            if (docu.external_id && el.external_id === docu.external_id) return true;
-            if (el.number === formattedSerieNum || el.number === formattedPadded) return true;
-            if (el.filename && el.filename.includes(`${serieClean}-${numeroClean}`)) return true;
-            return false;
-        }) : null;
-
-        // PASO 3 & 4: Regularizar PRO y Faqture
-        if (match) {
-            const stateTypeId = String(match.state_type_id || '');
-            const hasCdr = match.has_cdr === true || (match.has_cdr !== false && !!match.download_cdr);
-
-            if (stateTypeId === '05' && hasCdr) {
-                await update_document_state(id_document, company.tenant, { id: id_document, state: 'E' });
-                return res.json({ 
-                    success: true, 
-                    sunat_status: 'NO_ENCONTRADO_DIRECTO',
-                    pro_status: 'ACEPTADO',
-                    final_state: 'E',
-                    message: '✅ PRO: El comprobante figura ACEPTADO con CDR en el PRO. Estado sincronizado a Enviado (E).' 
-                });
-            } else if (stateTypeId === '11') {
-                await update_document_state(id_document, company.tenant, { id: id_document, state: 'A' });
-                return res.json({ 
-                    success: true, 
-                    sunat_status: 'NO_ENCONTRADO_DIRECTO',
-                    pro_status: 'ANULADO',
-                    final_state: 'A',
-                    message: '🔴 PRO: El comprobante figura ANULADO en el PRO. Estado sincronizado a Anulado (A).' 
-                });
-            } else if (stateTypeId === '09') {
-                await update_document_state(id_document, company.tenant, { id: id_document, state: 'R' });
-                return res.json({ 
-                    success: true, 
-                    sunat_status: 'NO_ENCONTRADO_DIRECTO',
-                    pro_status: 'RECHAZADO',
-                    final_state: 'R',
-                    message: '❌ PRO: El comprobante fue RECHAZADO por SUNAT en el PRO. Estado sincronizado a Rechazado (R).' 
-                });
-            }
-
-            if (sunatNetworkError) {
-                await update_document_state(id_document, company.tenant, { id: id_document, state: 'Y' });
-                return res.json({ 
-                    success: true, 
-                    sunat_status: 'ERROR_RED',
-                    pro_status: 'REGISTRADO',
-                    final_state: 'Y',
-                    message: `⚠️ No se pudo verificar en SUNAT por error de red. El comprobante figura en el PRO y se mantiene en estado Y.` 
-                });
-            }
-
-            const today = new Date();
-            today.setHours(0, 0, 0, 0);
-            const dateEmisionObj = new Date(docu.date);
-            dateEmisionObj.setHours(0, 0, 0, 0);
-            const diffDays = Math.floor((today.getTime() - dateEmisionObj.getTime()) / (1000 * 60 * 60 * 24));
-            let limitDays = (docu.type === '01' || serieClean.toUpperCase().startsWith('F')) ? 3 : 30;
-
-            if (diffDays > limitDays) {
-                await update_document_state(id_document, company.tenant, { id: id_document, state: 'Y' });
-                return res.json({ 
-                    success: true, 
-                    sunat_status: 'NO_ENCONTRADO',
-                    pro_status: 'REGISTRADO_PLAZO_VENCIDO',
-                    final_state: 'Y',
-                    message: `⚠️ El comprobante está en el PRO pero superó el plazo máximo de envío a SUNAT (${limitDays} días). Queda en estado Y.` 
-                });
-            }
-
-            const sendResult = await sendDoc(company, docu);
-
-            if (sendResult.state === 'E' || sendResult.state === 'P' || sendResult.success || (typeof sendResult.message === 'string' && sendResult.message.includes('ya se encuentra registrado'))) {
-                const finalSt = sendResult.state || 'E';
-                await update_document_state(id_document, company.tenant, { id: id_document, state: finalSt });
-                return res.json({ 
-                    success: true, 
-                    sunat_status: 'DECLARADO',
-                    pro_status: 'ACEPTADO',
-                    final_state: finalSt,
-                    message: `⚡ REGULARIZADO: Comprobante forzado y declarado a SUNAT exitosamente (Estado: ${finalSt}).` 
-                });
-            } else {
-                await update_document_state(id_document, company.tenant, { id: id_document, state: 'Y' });
-                const errMsg = typeof sendResult.message === 'string' ? sendResult.message : JSON.stringify(sendResult.message);
-                return res.json({ 
-                    success: false, 
-                    sunat_status: 'NO_ENCONTRADO',
-                    pro_status: 'PENDIENTE',
-                    final_state: 'Y',
-                    message: `⚠️ Comprobante registrado en PRO pero falló al declarar a SUNAT: ${errMsg}. Queda en estado Y.` 
-                });
-            }
-        } else {
-            const isAnulation = ['A', 'S', 'P', 'C', 'Z'].includes(docu.states);
-            const targetState = isAnulation ? 'S' : 'N';
-            await update_document_state(id_document, company.tenant, { id: id_document, state: targetState });
-            return res.json({ 
-                success: true, 
-                sunat_status: 'NO_ENCONTRADO',
-                pro_status: 'NO_EXISTE',
-                final_state: targetState,
-                message: `ℹ️ El comprobante NO EXISTE en SUNAT ni en el PRO. Estado sincronizado a ${targetState} para envío.` 
-            });
-        }
+        const result = await executeUnifiedValidation(company, docu);
+        return res.json(result);
     } catch (error) {
         console.error(error);
         return res.status(500).json({ success: false, message: 'Error interno en validación unificada', error: error.message });
@@ -885,4 +891,5 @@ module.exports = {
     validateProSingle,
     forceSendProToSunat,
     validateUnifiedSingle,
+    executeUnifiedValidation,
 };

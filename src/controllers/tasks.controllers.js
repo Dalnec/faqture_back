@@ -4,7 +4,7 @@ const fs = require('fs');
 const { setNewValues } = require('../libs/functions')
 const { getBackup } = require('../libs/backup.libs');
 const { uploadFile, searchFile, updateFile } = require('../libs/drive.libs');
-const { sendAllDocsAllCompanies, sendAllAnulateDocsAllCompanies, consultAllAnulateDocsAllCompanies } = require('../libs/document.libs');
+const { sendAllDocsAllCompanies, sendAllAnulateDocsAllCompanies, consultAllAnulateDocsAllCompanies, verifyErrorDocsAllCompanies } = require('../libs/document.libs');
 const { verifyCompanyPayments } = require('../libs/company.libs');
 
 // ========== CLASE TASKMANAGER MEJORADA ==========
@@ -23,6 +23,16 @@ class TaskManager {
                 WHERE state = 'E'
             `);
             console.log('⚠️ Reset interrupted tasks from previous session');
+
+            // Asegurar que la tarea 7 (Verificar comprobantes con error) exista en la tabla
+            const task7Check = await pool.query(`SELECT id_task FROM tasks WHERE id_task = 7`);
+            if (task7Check.rows.length === 0) {
+                await pool.query(`
+                    INSERT INTO tasks (id_task, name, description, on_off, time, created, modified)
+                    VALUES (7, 'Verificar Comprobantes con Error', 'Verifica y regulariza comprobantes con error de envío (X, M) o anulación (S, Z)', true, '0 */2 * * *', NOW(), NOW())
+                `);
+                console.log('✅ Created default task 7 (Verificar Comprobantes con Error)');
+            }
 
             const activeTasks = await pool.query(`SELECT * FROM tasks WHERE on_off = true`);
             console.log(`Initializing ${activeTasks.rows.length} active tasks...`);
@@ -61,6 +71,10 @@ class TaskManager {
             6: async () => {
                 console.log('----- taskVerifyPayments running ----- ');
                 await verifyCompanyPayments();
+            },
+            7: async () => {
+                console.log('----- taskVerifyErrorDocs running ----- ');
+                await verifyErrorDocsAllCompanies({ source: 'cron' });
             }
         };
 

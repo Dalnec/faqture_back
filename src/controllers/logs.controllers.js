@@ -5,23 +5,33 @@ const getSystemLogs = async (req, res, next) => {
         const { page = 1, limit = 50, tenant, level } = req.query;
         const offset = (page - 1) * limit;
 
-        let query = 'SELECT * FROM public.system_logs WHERE 1=1';
+        let query = `
+            SELECT l.*, c.company, c.company_number 
+            FROM public.system_logs l
+            LEFT JOIN public.company c ON l.tenant = c.tenant
+            WHERE 1=1
+        `;
         let queryParams = [];
-        let countQuery = 'SELECT COUNT(*) FROM public.system_logs WHERE 1=1';
+        let countQuery = `
+            SELECT COUNT(*) 
+            FROM public.system_logs l
+            LEFT JOIN public.company c ON l.tenant = c.tenant
+            WHERE 1=1
+        `;
 
         if (tenant) {
-            queryParams.push(tenant);
-            query += ` AND tenant = $${queryParams.length}`;
-            countQuery += ` AND tenant = $${queryParams.length}`;
+            queryParams.push(`%${tenant.trim()}%`);
+            query += ` AND (l.tenant ILIKE $${queryParams.length} OR l.message ILIKE $${queryParams.length} OR c.company ILIKE $${queryParams.length} OR c.company_number ILIKE $${queryParams.length})`;
+            countQuery += ` AND (l.tenant ILIKE $${queryParams.length} OR l.message ILIKE $${queryParams.length} OR c.company ILIKE $${queryParams.length} OR c.company_number ILIKE $${queryParams.length})`;
         }
 
         if (level) {
             queryParams.push(level);
-            query += ` AND level = $${queryParams.length}`;
-            countQuery += ` AND level = $${queryParams.length}`;
+            query += ` AND l.level = $${queryParams.length}`;
+            countQuery += ` AND l.level = $${queryParams.length}`;
         }
 
-        query += ` ORDER BY created_at DESC LIMIT $${queryParams.length + 1} OFFSET $${queryParams.length + 2}`;
+        query += ` ORDER BY l.created_at DESC LIMIT $${queryParams.length + 1} OFFSET $${queryParams.length + 2}`;
 
         const logsPromise = pool.query(query, [...queryParams, limit, offset]);
         const countPromise = pool.query(countQuery, queryParams);

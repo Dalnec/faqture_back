@@ -1,4 +1,5 @@
 const express = require('express');
+// Servidor Faqture Backend
 const path = require('path');
 const cors = require('cors');
 const morgan = require('morgan');
