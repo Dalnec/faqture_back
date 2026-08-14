@@ -87,10 +87,20 @@ const select_document_by_serie_number = async (tenant, serie, numero) => {
     }
 }
 
-const select_all_documents = async (tenant) => {
+const buildTypeClause = (docTypes) => {
+    if (Array.isArray(docTypes) && docTypes.length > 0) {
+        const cleanTypes = docTypes.filter(t => /^[0-9a-zA-Z]+$/.test(t)).map(t => `'${t}'`);
+        if (cleanTypes.length > 0) {
+            return `type IN (${cleanTypes.join(',')})`;
+        }
+    }
+    return "type <> '80'";
+};
+
+const select_all_documents = async (tenant, docTypes = null) => {
     try {
         if (!tenant) { return false; }
-        const docs = await pool.query(`SELECT id_document, cod_sale, serie, numero, json_format, states, type, response_send, external_id FROM ${tenant}.document WHERE states in ('N', 'X', 'M', 'S') AND type <> '80' ORDER BY id_document limit 100`);
+        const docs = await pool.query(`SELECT id_document, cod_sale, serie, numero, json_format, states, type, response_send, external_id FROM ${tenant}.document WHERE states in ('N', 'X', 'M', 'S') AND ${buildTypeClause(docTypes)} ORDER BY id_document limit 100`);
         if (!docs.rowCount) { return false; }
         return docs.rows;
 
@@ -100,10 +110,10 @@ const select_all_documents = async (tenant) => {
     }
 }
 
-const select_error_documents = async (tenant) => {
+const select_error_documents = async (tenant, docTypes = null) => {
     try {
         if (!tenant) { return false; }
-        const docs = await pool.query(`SELECT id_document, cod_sale, serie, numero, json_format, states, type, response_send, external_id, date, amount FROM ${tenant}.document WHERE states IN ('X', 'M', 'S', 'Z') AND type <> '80' ORDER BY id_document ASC LIMIT 50`);
+        const docs = await pool.query(`SELECT id_document, cod_sale, serie, numero, json_format, states, type, response_send, external_id, date, amount FROM ${tenant}.document WHERE states IN ('X', 'M', 'S', 'Z') AND ${buildTypeClause(docTypes)} ORDER BY id_document ASC LIMIT 50`);
         if (!docs.rowCount) { return false; }
         return docs.rows;
     } catch (error) {
@@ -125,10 +135,10 @@ const select_all_responses = async (tenant) => {
     }
 }
 
-const select_all_documents_to_anulate = async (tenant) => {
+const select_all_documents_to_anulate = async (tenant, docTypes = null) => {
     try {
         if (!tenant) { return false; }
-        const docs = await pool.query(`SELECT id_document, json_format, states, response_send, type, serie, numero, date, amount FROM ${tenant}.document WHERE states in ('P', 'Z') ORDER BY id_document limit 50`);
+        const docs = await pool.query(`SELECT id_document, json_format, states, response_send, type, serie, numero, date, amount FROM ${tenant}.document WHERE states in ('P', 'Z') AND ${buildTypeClause(docTypes)} ORDER BY id_document limit 50`);
         if (!docs.rowCount) { return false; }
         return docs.rows;
 
@@ -138,10 +148,10 @@ const select_all_documents_to_anulate = async (tenant) => {
     }
 }
 
-const select_all_documents_to_consult_void = async (tenant) => {
+const select_all_documents_to_consult_void = async (tenant, docTypes = null) => {
     try {
         if (!tenant) { return false; }
-        const docs = await pool.query(`SELECT id_document, json_format, states, response_send, response_anulate, type FROM ${tenant}.document WHERE states = 'C' ORDER BY id_document limit 50`);
+        const docs = await pool.query(`SELECT id_document, json_format, states, response_send, response_anulate, type FROM ${tenant}.document WHERE states = 'C' AND ${buildTypeClause(docTypes)} ORDER BY id_document limit 50`);
         if (!docs.rowCount) { return false; }
         return docs.rows;
 
@@ -345,11 +355,11 @@ const shouldSkipAnulation = async (company, doc) => {
     return reason;
 };
 
-const formatAnulatePerCompany = async (tenant, company = null) => {
+const formatAnulatePerCompany = async (tenant, company = null, docTypes = null) => {
     try {
         if (!tenant) { return false; }
 
-        const docs = await select_all_documents_to_anulate(tenant)
+        const docs = await select_all_documents_to_anulate(tenant, docTypes)
         if (docs == false || docs.length <= 0) { return []; }
 
         let listformat = [];
@@ -941,7 +951,7 @@ const sendAllDocsAllCompanies = async (options = {}) => {
         for (let company of companies) {
             try {
                 if (company.state && company.url && company.token) {
-                    const docus = await select_all_documents(company.tenant);
+                    const docus = await select_all_documents(company.tenant, options?.docTypes);
                     if (docus.length > 0) {
                         console.log(`Processing company: ${company.tenant} with ${docus.length} documents`);
                         let { num_aceptados, num_error, num_rechazados } = await sendAllDocsPerCompany(company, docus, options);
@@ -981,7 +991,7 @@ const sendAllDocsAllCompanies = async (options = {}) => {
 
 // Used by tasks
 let isProcessingNullify = false;
-const sendAllAnulateDocsAllCompanies = async () => {
+const sendAllAnulateDocsAllCompanies = async (options = {}) => {
     if (isProcessingNullify) {
         console.log('Nullify Previous execution still running, skipping...');
         return;
@@ -996,7 +1006,7 @@ const sendAllAnulateDocsAllCompanies = async () => {
                     console.log(company.tenant, "missing url/token — skipping");
                     continue;
                 }
-                const listformat = await formatAnulatePerCompany(company.tenant, company)
+                const listformat = await formatAnulatePerCompany(company.tenant, company, options?.docTypes)
                 if (listformat.length > 0) {
                     const api_doc = await update_doc_api(null, company.url)
                     const api = new ApiClient(`${company.url}/api/summaries`, company.token)
@@ -1036,7 +1046,7 @@ const sendAllAnulateDocsAllCompanies = async () => {
 
 // Used by tasks
 let isProcessingNullifyConsult = false;
-const consultAllAnulateDocsAllCompanies = async () => {
+const consultAllAnulateDocsAllCompanies = async (options = {}) => {
     if (isProcessingNullifyConsult) {
         console.log('Consulting Previous execution still running, skipping...');
         return;
@@ -1047,7 +1057,7 @@ const consultAllAnulateDocsAllCompanies = async () => {
         const companies = await selectAllApiCompany()
         for (let company of companies) {
             console.log(`Consulting company: ${company.tenant}`)
-            const docs = await select_all_documents_to_consult_void(company.tenant)
+            const docs = await select_all_documents_to_consult_void(company.tenant, options?.docTypes)
             if (!docs) {
                 console.log(`No nullified documents to consult!`)
                 continue;

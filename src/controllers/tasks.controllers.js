@@ -51,18 +51,30 @@ class TaskManager {
             this.stopTask(taskId);
         }
 
+        const getTaskDocTypes = async (id) => {
+            try {
+                const r = await pool.query('SELECT doc_types FROM tasks WHERE id_task = $1', [id]);
+                return r.rows[0]?.doc_types || ['01', '03', '07', '08'];
+            } catch (e) {
+                return ['01', '03', '07', '08'];
+            }
+        };
+
         const taskHandlers = {
             1: async () => {
                 console.log('----- taskDocs running ----- ');
-                await sendAllDocsAllCompanies({ source: 'cron' });
+                const docTypes = await getTaskDocTypes(1);
+                await sendAllDocsAllCompanies({ source: 'cron', docTypes });
             },
             2: async () => {
                 console.log('----- taskDocsVoided running -----');
-                await sendAllAnulateDocsAllCompanies();
+                const docTypes = await getTaskDocTypes(2);
+                await sendAllAnulateDocsAllCompanies({ docTypes });
             },
             3: async () => {
                 console.log('----- taskSummary running ----- ');
-                await consultAllAnulateDocsAllCompanies();
+                const docTypes = await getTaskDocTypes(3);
+                await consultAllAnulateDocsAllCompanies({ docTypes });
             },
             4: async () => {
                 console.log('----- taskbackup running ----- ');
@@ -74,7 +86,8 @@ class TaskManager {
             },
             7: async () => {
                 console.log('----- taskVerifyErrorDocs running ----- ');
-                await verifyErrorDocsAllCompanies({ source: 'cron' });
+                const docTypes = await getTaskDocTypes(7);
+                await verifyErrorDocsAllCompanies({ source: 'cron', docTypes });
             }
         };
 
@@ -267,7 +280,7 @@ const getTask = async (req, res, next) => {
 
 const getTasks = async (req, res, next) => {
     try {
-        const response = await pool.query(`SELECT id_task, modified::text, name, state, on_off, time FROM tasks ORDER BY id_task`)
+        const response = await pool.query(`SELECT id_task, modified::text, name, description, state, on_off, time, last_error, doc_types FROM tasks ORDER BY id_task`)
         res.json(response.rows);
     } catch (error) {
         console.log(error);
@@ -277,17 +290,19 @@ const getTasks = async (req, res, next) => {
 
 const createTask = async (req, res, next) => {
     try {
-        const { name, state, on_off, time } = req.body
+        const { name, state, on_off, time, doc_types } = req.body
         const now = new Date()
         const valid = cron.validate(time);
         if (!valid) {
             return res.json({ success: false, message: "Error Time format" });
         }
 
+        const formattedDocTypes = doc_types ? (typeof doc_types === 'object' ? JSON.stringify(doc_types) : doc_types) : '["01", "03", "07", "08"]';
+
         const response = await pool.query(
-            `INSERT INTO tasks(created, modified, name, state, on_off, time) 
-            VALUES ( $1, $2, $3, $4, $5, $6) RETURNING id_task`,
-            [now, now, name, state, on_off, time]);
+            `INSERT INTO tasks(created, modified, name, state, on_off, time, doc_types) 
+            VALUES ( $1, $2, $3, $4, $5, $6, $7) RETURNING id_task`,
+            [now, now, name, state, on_off, time, formattedDocTypes]);
 
         const newTaskId = response.rows[0].id_task;
 
@@ -321,6 +336,10 @@ const updateTask = async (req, res, next) => {
         const currentTask = await pool.query(`SELECT * FROM tasks WHERE id_task=$1`, [id]);
         if (!currentTask.rowCount) {
             return res.json({ success: false, message: "Task not found" });
+        }
+
+        if (req.body.doc_types && typeof req.body.doc_types === 'object') {
+            req.body.doc_types = JSON.stringify(req.body.doc_types);
         }
 
         const newData = setNewValues(req.body)
