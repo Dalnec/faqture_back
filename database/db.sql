@@ -100,7 +100,11 @@ CREATE TABLE public.tasks(
     PRIMARY KEY (id_task)
 );
 ALTER TABLE public.tasks
+ADD COLUMN IF NOT EXISTS description TEXT;
+ALTER TABLE public.tasks
 ADD COLUMN IF NOT EXISTS last_error TEXT;
+ALTER TABLE public.tasks
+ADD COLUMN IF NOT EXISTS doc_types JSONB DEFAULT '["01", "03", "07", "08"]'::jsonb;
 -- SETTINGS TABLE
 CREATE TABLE public.settings(
     id_settings SMALLINT,
