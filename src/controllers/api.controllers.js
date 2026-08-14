@@ -1,7 +1,8 @@
+const pool = require('../db');
 const { selectApiCompanyById } = require('../libs/company.libs');
 const { ApiClient } = require('../libs/api.libs');
 const { update_doc_api, checkConnection } = require('../libs/connection');
-const { select_document_by_id, select_all_documents, update_document, update_document_state, update_document_anulate, formatAnulate, sendAllDocsPerCompany, formatAnulatePerCompany, verifyingExternalIds, sendAllAnulateDocsPerCompany, countingDocsState, consultAnulation, select_all_documents_to_consult_void, sendAllConsultVoidPerCompany, sendDoc, pool } = require('../libs/document.libs');
+const { select_document_by_id, select_all_documents, update_document, update_document_state, update_document_anulate, formatAnulate, sendAllDocsPerCompany, formatAnulatePerCompany, verifyingExternalIds, sendAllAnulateDocsPerCompany, countingDocsState, consultAnulation, select_all_documents_to_consult_void, sendAllConsultVoidPerCompany, sendDoc } = require('../libs/document.libs');
 const { getSettingApiRuc } = require('../libs/settings.lib');
 const { ApiRUC } = require('../libs/apiClient.lib');
 const { formatDateForSunat, translateSystemStatus, getEnvironmentLabel, validateVoucherOnSunat, SUNAT_STATUS_LABELS, translateSunatStatus } = require('../libs/sunatValidation.libs');
@@ -704,7 +705,7 @@ const executeUnifiedValidation = async (company, docu) => {
             success: true, 
             sunat_status: 'ACEPTADO',
             final_state: 'E',
-            message: '✅ SUNAT: El comprobante existe y está ACEPTADO en SUNAT. Estado local sincronizado a Enviado (E).' 
+            message: 'SUNAT: El comprobante existe y está ACEPTADO en SUNAT. Estado local sincronizado a Enviado (E).' 
         };
     } else if (estadoCp === '2') {
         await update_document_state(id_document, company.tenant, { id: id_document, state: 'A' });
@@ -712,7 +713,7 @@ const executeUnifiedValidation = async (company, docu) => {
             success: true, 
             sunat_status: 'ANULADO',
             final_state: 'A',
-            message: '🔴 SUNAT: El comprobante existe y está ANULADO en SUNAT. Estado local sincronizado a Anulado (A).' 
+            message: 'SUNAT: El comprobante existe y está ANULADO en SUNAT. Estado local sincronizado a Anulado (A).' 
         };
     } else if (estadoCp === '4') {
         await update_document_state(id_document, company.tenant, { id: id_document, state: 'R' });
@@ -720,7 +721,7 @@ const executeUnifiedValidation = async (company, docu) => {
             success: true, 
             sunat_status: 'RECHAZADO',
             final_state: 'R',
-            message: '❌ SUNAT: El comprobante fue RECHAZADO por SUNAT. Estado local actualizado a Rechazado (R).' 
+            message: 'SUNAT: El comprobante fue RECHAZADO por SUNAT. Estado local actualizado a Rechazado (R).' 
         };
     }
 
@@ -767,7 +768,7 @@ const executeUnifiedValidation = async (company, docu) => {
                 sunat_status: 'NO_ENCONTRADO_DIRECTO',
                 pro_status: 'ACEPTADO',
                 final_state: 'E',
-                message: '✅ PRO: El comprobante figura ACEPTADO con CDR en el PRO. Estado sincronizado a Enviado (E).' 
+                message: 'PRO: El comprobante figura ACEPTADO con CDR en el PRO. Estado sincronizado a Enviado (E).' 
             };
         } else if (stateTypeId === '11') {
             await update_document_state(id_document, company.tenant, { id: id_document, state: 'A' });
@@ -776,7 +777,7 @@ const executeUnifiedValidation = async (company, docu) => {
                 sunat_status: 'NO_ENCONTRADO_DIRECTO',
                 pro_status: 'ANULADO',
                 final_state: 'A',
-                message: '🔴 PRO: El comprobante figura ANULADO en el PRO. Estado sincronizado a Anulado (A).' 
+                message: 'PRO: El comprobante figura ANULADO en el PRO. Estado sincronizado a Anulado (A).' 
             };
         } else if (stateTypeId === '09') {
             await update_document_state(id_document, company.tenant, { id: id_document, state: 'R' });
@@ -785,7 +786,7 @@ const executeUnifiedValidation = async (company, docu) => {
                 sunat_status: 'NO_ENCONTRADO_DIRECTO',
                 pro_status: 'RECHAZADO',
                 final_state: 'R',
-                message: '❌ PRO: El comprobante fue RECHAZADO por SUNAT en el PRO. Estado sincronizado a Rechazado (R).' 
+                message: 'PRO: El comprobante fue RECHAZADO por SUNAT en el PRO. Estado sincronizado a Rechazado (R).' 
             };
         }
 
@@ -796,7 +797,7 @@ const executeUnifiedValidation = async (company, docu) => {
                 sunat_status: 'ERROR_RED',
                 pro_status: 'REGISTRADO',
                 final_state: 'Y',
-                message: `⚠️ No se pudo verificar en SUNAT por error de red. El comprobante figura en el PRO y se mantiene en estado Y.` 
+                message: `No se pudo verificar en SUNAT por error de red. El comprobante figura en el PRO y se mantiene en estado Y.` 
             };
         }
 
@@ -814,7 +815,7 @@ const executeUnifiedValidation = async (company, docu) => {
                 sunat_status: 'NO_ENCONTRADO',
                 pro_status: 'REGISTRADO_PLAZO_VENCIDO',
                 final_state: 'Y',
-                message: `⚠️ El comprobante está en el PRO pero superó el plazo máximo de envío a SUNAT (${limitDays} días). Queda en estado Y.` 
+                message: `El comprobante está en el PRO pero superó el plazo máximo de envío a SUNAT (${limitDays} días). Queda en estado Y.` 
             };
         }
 
@@ -828,7 +829,7 @@ const executeUnifiedValidation = async (company, docu) => {
                 sunat_status: 'DECLARADO',
                 pro_status: 'ACEPTADO',
                 final_state: finalSt,
-                message: `⚡ REGULARIZADO: Comprobante forzado y declarado a SUNAT exitosamente (Estado: ${finalSt}).` 
+                message: `REGULARIZADO: Comprobante forzado y declarado a SUNAT exitosamente (Estado: ${finalSt}).` 
             };
         } else {
             await update_document_state(id_document, company.tenant, { id: id_document, state: 'Y' });
@@ -838,7 +839,7 @@ const executeUnifiedValidation = async (company, docu) => {
                 sunat_status: 'NO_ENCONTRADO',
                 pro_status: 'PENDIENTE',
                 final_state: 'Y',
-                message: `⚠️ Comprobante registrado en PRO pero falló al declarar a SUNAT: ${errMsg}. Queda en estado Y.` 
+                message: `Comprobante registrado en PRO pero falló al declarar a SUNAT: ${errMsg}. Queda en estado Y.` 
             };
         }
     } else {
@@ -850,7 +851,7 @@ const executeUnifiedValidation = async (company, docu) => {
             sunat_status: 'NO_ENCONTRADO',
             pro_status: 'NO_EXISTE',
             final_state: targetState,
-            message: `ℹ️ El comprobante NO EXISTE en SUNAT ni en el PRO. Estado sincronizado a ${targetState} para envío.` 
+            message: `El comprobante NO EXISTE en SUNAT ni en el PRO. Estado sincronizado a ${targetState} para envío.` 
         };
     }
 };
@@ -876,6 +877,56 @@ const validateUnifiedSingle = async (req, res, next) => {
     }
 };
 
+const getCompanyErrorDocuments = async (req, res, next) => {
+    try {
+        const { id_company } = req.body;
+        const company = await selectApiCompanyById(id_company);
+        if (!company) {
+            return res.status(404).json({ success: false, message: 'Empresa no encontrada' });
+        }
+
+        const tenant = company.tenant;
+        const query = `
+            SELECT id_document, cod_sale, serie, numero, type, states, date, amount, external_id 
+            FROM ${tenant}.document 
+            WHERE states IN ('X', 'M', 'S', 'Z', 'P', 'C') AND type <> '80' 
+            ORDER BY id_document ASC
+        `;
+        const result = await pool.query(query);
+        const docs = result.rows || [];
+
+        let send_errors = 0;
+        let void_errors = 0;
+        let void_pending = 0;
+
+        for (const d of docs) {
+            if (['X', 'M', 'S'].includes(d.states)) {
+                send_errors++;
+            } else if (d.states === 'Z') {
+                void_errors++;
+            } else if (['P', 'C'].includes(d.states)) {
+                void_pending++;
+            }
+        }
+
+        return res.json({
+            success: true,
+            tenant: company.tenant,
+            company_name: company.company,
+            summary: {
+                send_errors,
+                void_errors,
+                void_pending,
+                total: docs.length,
+            },
+            documents: docs,
+        });
+    } catch (error) {
+        console.error('Error in getCompanyErrorDocuments:', error);
+        return res.status(500).json({ success: false, message: error.message });
+    }
+};
+
 module.exports = {
     sendDocument,
     anulateDocument,
@@ -892,4 +943,5 @@ module.exports = {
     forceSendProToSunat,
     validateUnifiedSingle,
     executeUnifiedValidation,
+    getCompanyErrorDocuments,
 };

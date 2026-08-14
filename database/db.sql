@@ -218,3 +218,18 @@ CREATE TABLE public.system_logs (
 CREATE INDEX idx_system_logs_tenant ON public.system_logs(tenant);
 CREATE INDEX idx_system_logs_level ON public.system_logs(level);
 CREATE INDEX idx_system_logs_created_at ON public.system_logs(created_at DESC);
+
+-- --------------------------------------------------------
+-- TASKS 6 & 7 INSERTS
+-- --------------------------------------------------------
+INSERT INTO public.tasks (id_task, name, state, on_off, time, created, modified)
+VALUES 
+  (6, 'Verificar Pagos', 'N', true, '0 0 * * *', NOW(), NOW()),
+  (7, 'Verificar Comprobantes con Error', 'N', true, '*/10 * * * * *', NOW(), NOW())
+ON CONFLICT (id_task) DO UPDATE 
+SET name = EXCLUDED.name,
+    on_off = EXCLUDED.on_off,
+    time = EXCLUDED.time;
+
+SELECT setval('public.tasks_id_task_seq', (SELECT COALESCE(MAX(id_task), 1) FROM public.tasks));
+
