@@ -224,14 +224,16 @@ CREATE INDEX idx_system_logs_level ON public.system_logs(level);
 CREATE INDEX idx_system_logs_created_at ON public.system_logs(created_at DESC);
 
 -- --------------------------------------------------------
--- TASKS 6 & 7 INSERTS
+-- TASKS 5, 6 & 7 INSERTS
 -- --------------------------------------------------------
-INSERT INTO public.tasks (id_task, name, state, on_off, time, created, modified)
+INSERT INTO public.tasks (id_task, name, description, state, on_off, time, created, modified)
 VALUES 
-  (6, 'Verificar Pagos', 'N', true, '0 0 * * *', NOW(), NOW()),
-  (7, 'Verificar Comprobantes con Error', 'N', true, '*/10 * * * * *', NOW(), NOW())
+  (5, 'Generar Resúmenes de Boletas', 'Generación y envío automático de resúmenes diarios de boletas y reenvío de facturas pendientes a SUNAT / PRO', 'N', true, '0 */2 * * *', NOW(), NOW()),
+  (6, 'Verificar Pagos', 'Verificación de estado de pago de suscripciones de empresas', 'N', true, '0 0 * * *', NOW(), NOW()),
+  (7, 'Verificar Comprobantes con Error', 'Verificación y regularización automática de comprobantes con error (X, M, S, Z)', 'N', true, '*/10 * * * * *', NOW(), NOW())
 ON CONFLICT (id_task) DO UPDATE 
 SET name = EXCLUDED.name,
+    description = EXCLUDED.description,
     on_off = EXCLUDED.on_off,
     time = EXCLUDED.time;
 
