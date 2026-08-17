@@ -6,6 +6,7 @@ const { getBackup } = require('../libs/backup.libs');
 const { uploadFile, searchFile, updateFile } = require('../libs/drive.libs');
 const { sendAllDocsAllCompanies, sendAllAnulateDocsAllCompanies, consultAllAnulateDocsAllCompanies, verifyErrorDocsAllCompanies } = require('../libs/document.libs');
 const { verifyCompanyPayments } = require('../libs/company.libs');
+const { processSummariesAndPendingAllCompanies } = require('../libs/summary.libs');
 
 // ========== CLASE TASKMANAGER MEJORADA ==========
 class TaskManager {
@@ -29,13 +30,15 @@ class TaskManager {
             if (task7Check.rows.length === 0) {
                 await pool.query(`
                     INSERT INTO tasks (id_task, name, description, on_off, time, created, modified)
-                    VALUES (7, 'Verificar Comprobantes con Error', 'Verifica y regulariza comprobantes con error de envío (X, M) o anulación (S, Z)', true, '0 */2 * * *', NOW(), NOW())
+                    VALUES (7, 'Verificar Comprobantes con Error', 'Verificación y regularización automática de comprobantes con error (X, M, S, Z)', true, '*/10 * * * * *', NOW(), NOW())
+                    ON CONFLICT (id_task) DO UPDATE 
+                    SET name = EXCLUDED.name, description = EXCLUDED.description, on_off = EXCLUDED.on_off, time = EXCLUDED.time
                 `);
-                console.log('✅ Created default task 7 (Verificar Comprobantes con Error)');
             }
 
-            const activeTasks = await pool.query(`SELECT * FROM tasks WHERE on_off = true`);
-            console.log(`Initializing ${activeTasks.rows.length} active tasks...`);
+            // Iniciar solo las tareas que están marcadas como activas (on_off = true)
+            const activeTasks = await pool.query('SELECT id_task, time FROM tasks WHERE on_off = true');
+            console.log(`Found ${activeTasks.rows.length} active tasks to start`);
 
             for (const task of activeTasks.rows) {
                 this.startTask(task.id_task, task.time);
@@ -79,6 +82,11 @@ class TaskManager {
             4: async () => {
                 console.log('----- taskbackup running ----- ');
                 await getBackup();
+            },
+            5: async () => {
+                console.log('----- taskSummaryBoletas running ----- ');
+                const docTypes = await getTaskDocTypes(5);
+                await processSummariesAndPendingAllCompanies({ source: 'cron', docTypes });
             },
             6: async () => {
                 console.log('----- taskVerifyPayments running ----- ');
