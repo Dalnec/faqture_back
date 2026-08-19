@@ -430,56 +430,26 @@ const formatAnulatePerCompany = async (tenant, company = null, docTypes = null) 
 
 
 const sendDoc = async (company, docu) => {
-    let doc = await select_document_by_serie_number(company.tenant, docu.serie_documento, docu.numero_documento);
-    if (doc) {
-        return JSON.parse(doc.response_send);
-    }
     let token = company.token;
-    if (company.token_series && company.token_series.length > 0) {
-        let sale = null;
-        try {
-            sale = typeof docu.json_format === 'string' ? JSON.parse(docu.json_format) : docu.json_format;
-            if (typeof sale === 'string') {
-                try { sale = JSON.parse(sale); } catch (e) {}
-            }
-        } catch (e) {}
-        if (sale?.serie_documento) {
-            let branch = company.token_series.find(e => {
-                return Array.isArray(e.series) && e.series.includes(sale.serie_documento);
-            });
-            if (branch?.token) {
-                token = branch.token;
-            }
+    let payloadObj = null;
+    try {
+        payloadObj = typeof docu.json_format === 'string' ? JSON.parse(docu.json_format) : docu.json_format;
+        if (typeof payloadObj === 'string') {
+            try { payloadObj = JSON.parse(payloadObj); } catch (e) {}
+        }
+    } catch (e) {
+        payloadObj = docu.json_format;
+    }
+
+    if (company.token_series && company.token_series.length > 0 && payloadObj?.serie_documento) {
+        let branch = company.token_series.find(e => {
+            return Array.isArray(e.series) && e.series.includes(payloadObj.serie_documento);
+        });
+        if (branch?.token) {
+            token = branch.token;
         }
     }
     let result;
-    // Esto funciona con la api externa APISUNAT
-    // if (docu.type == '31') {
-    // const apiSunat = new ApiSunat(`${company.external_api.apisunat.url}/personas/v1/sendBill`)
-    // const format_doc = adaptGuiaTransportista(company, JSON.parse(docu.json_format))
-
-    // result = await apiSunat.sendDocument(format_doc);
-
-    // if (result.status === 'ERROR' || result.error) {
-    //     result.state = 'X';
-    //     if (result.message && result.message.search('Numeración repetida') > 0) {
-    //         result.state = 'E';
-    //     }
-    // } else {
-    //     result.state = 'E';
-    //     result.data = { filename: format_doc.fileName };
-    //     result.links = {
-    //         xml: "",
-    //         pdf: `${company.external_api.apisunat.url}/documents/${result.documentId}/getPDF/A4/${format_doc.fileName}.pdf`,
-    //         cdr: ""
-    //     }
-    // }
-
-    // result.external_id = docu.external_id
-    // const doc = await update_document(docu.id_document, company.tenant, result);
-    // if (!doc) result.state = 'U';
-    // return result
-    // }
     let url = `${company.url}/api/`;
     switch (docu.type) {
         case '09':
@@ -495,23 +465,24 @@ const sendDoc = async (company, docu) => {
 
     const api = new ApiClient(url, token);
     
-    // Primero, aplicamos sanitizeGuiaFormat (creado por el otro dev) para las Guías (tipos 09 y 31)
+    // Primero, aplicamos sanitizeGuiaFormat para las Guías (tipos 09 y 31)
     let payloadToSent = sanitizeGuiaFormat(docu);
     
-    // Segundo, aplicamos nuestra sanitización para Facturas y Boletas (tipos 01 y 03) 
-    // que sanitizeGuiaFormat no cubre, usando su nueva función truncateAddress
+    // Segundo, aplicamos sanitización para Facturas y Boletas (tipos 01 y 03) usando truncateAddress
     try {
-        let payloadObj = typeof payloadToSent === 'string' ? JSON.parse(payloadToSent) : payloadToSent;
+        let tempObj = typeof payloadToSent === 'string' ? JSON.parse(payloadToSent) : payloadToSent;
+        if (typeof tempObj === 'string') {
+            try { tempObj = JSON.parse(tempObj); } catch (e) {}
+        }
 
-        if (payloadObj && typeof payloadObj === 'object') {
-            if (payloadObj.delivery?.address) {
-                payloadObj.delivery.address = truncateAddress(payloadObj.delivery.address);
+        if (tempObj && typeof tempObj === 'object') {
+            if (tempObj.delivery?.address) {
+                tempObj.delivery.address = truncateAddress(tempObj.delivery.address);
             }
-            if (payloadObj.datos_del_cliente_o_receptor?.direccion) {
-                payloadObj.datos_del_cliente_o_receptor.direccion = truncateAddress(payloadObj.datos_del_cliente_o_receptor.direccion);
+            if (tempObj.datos_del_cliente_o_receptor?.direccion) {
+                tempObj.datos_del_cliente_o_receptor.direccion = truncateAddress(tempObj.datos_del_cliente_o_receptor.direccion);
             }
-
-            payloadToSent = typeof docu.json_format === 'string' ? JSON.stringify(payloadObj) : payloadObj;
+            payloadToSent = tempObj;
         }
     } catch (e) {
         console.error("Error sanitizing document payload:", e);
@@ -684,6 +655,20 @@ const validarMensajeError = (response) => {
 const getDocumentLabel = (docu = {}) => {
     if (docu.serie && docu.numero) {
         return `${docu.serie}-${docu.numero}`;
+    }
+
+    if (docu.serie_documento && docu.numero_documento) {
+        return `${docu.serie_documento}-${docu.numero_documento}`;
+    }
+
+    if (docu.json_format) {
+        try {
+            let j = typeof docu.json_format === 'string' ? JSON.parse(docu.json_format) : docu.json_format;
+            if (typeof j === 'string') { try { j = JSON.parse(j); } catch (e) {} }
+            if (j?.serie_documento && j?.numero_documento) {
+                return `${j.serie_documento}-${j.numero_documento}`;
+            }
+        } catch (e) {}
     }
 
     if (docu.cod_sale) {

@@ -48,12 +48,12 @@ const logger = createLogger({
 
 // ─── Formateadores de mensaje para notificaciones ──────────────────────────────
 
-const TRUNCATE_LIMIT = 800;
+const TRUNCATE_LIMIT = 3500;
 
 const truncate = (str, limit = TRUNCATE_LIMIT) => {
     if (!str) return '';
-    const s = typeof str === 'string' ? str : JSON.stringify(str);
-    return s.length > limit ? s.substring(0, limit) + '\n...[truncado]' : s;
+    const s = typeof str === 'string' ? str : JSON.stringify(str, null, 2);
+    return s.length > limit ? s.substring(0, limit) + '\n...[contexto continuado]' : s;
 };
 
 const buildPlainText = (ctx) => {
@@ -68,9 +68,9 @@ const buildPlainText = (ctx) => {
         ctx.endpoint ? `Endpoint: ${ctx.endpoint}`  : null,
         '─'.repeat(40),
         `Error:    ${ctx.message || 'Sin mensaje'}`,
-        ctx.stack    ? `Stack:\n${truncate(ctx.stack, 600)}` : null,
+        ctx.stack    ? `Stack:\n${truncate(ctx.stack, 2000)}` : null,
         '─'.repeat(40),
-        ctx.payload  ? `Payload:\n${truncate(JSON.stringify(ctx.payload, null, 2))}` : null,
+        ctx.payload  ? `Payload:\n${truncate(typeof ctx.payload === 'string' ? ctx.payload : JSON.stringify(ctx.payload, null, 2), 2500)}` : null,
         `Hora:     ${new Date().toLocaleString('es-PE', { timeZone: 'America/Lima' })}`,
     ];
     return lines.filter(Boolean).join('\n');
@@ -127,11 +127,24 @@ const notifyError = async (ctx = {}) => {
     const message = err instanceof Error ? err.message : String(err || 'Error desconocido');
     const stack   = err instanceof Error ? err.stack : undefined;
 
+    let documentLabel = ctx.document;
+    if (!documentLabel && ctx.payload) {
+        if (ctx.payload.serie && ctx.payload.numero) {
+            documentLabel = `${ctx.payload.serie}-${ctx.payload.numero}`;
+        } else if (ctx.payload.serie_documento && ctx.payload.numero_documento) {
+            documentLabel = `${ctx.payload.serie_documento}-${ctx.payload.numero_documento}`;
+        } else if (ctx.payload.document) {
+            documentLabel = String(ctx.payload.document);
+        } else if (ctx.payload.cod_sale) {
+            documentLabel = String(ctx.payload.cod_sale);
+        }
+    }
+
     const logCtx = {
         type:     ctx.type     || 'Error general',
         tenant:   ctx.tenant,
         ruc:      ctx.ruc,
-        document: ctx.document,
+        document: documentLabel,
         endpoint: ctx.endpoint,
         payload:  ctx.payload,
         message,
