@@ -417,21 +417,111 @@ const nullifyDocument = async (req, res, next) => {
 };
 
 const updateDocument = async (req, res, next) => {
-    const id = parseInt(req.params.id);
-    const tenant = req.params.tenant;
-    // let newData = req.body;
-    const newData = setNewValues(req.body)
-    const response = await pool.query(
-        `UPDATE ${tenant}.document SET ${newData} WHERE id_document = $1 RETURNING *`, [id]);
-    // res.json({
-    //     state: 'success',
-    //     message: "UPDATED"
-    // })
-    res.status(200).json({
-        success: true,
-        message: "Update!",
-        response: response.rows[0],
-    })
+    try {
+        const id = parseInt(req.params.id, 10);
+        const tenant = req.params.tenant;
+
+        if (!id || !tenant) {
+            return res.status(400).json({ success: false, message: 'Parámetros inválidos' });
+        }
+
+        const updates = [];
+        const values = [];
+        let paramIdx = 1;
+
+        // Campos permitidos directamente
+        const allowedDirect = ['states', 'verified', 'external_id', 'cod_sale', 'type', 'serie', 'numero', 'customer_number', 'customer', 'amount'];
+        for (const col of allowedDirect) {
+            if (req.body[col] !== undefined) {
+                updates.push(`${col} = $${paramIdx++}`);
+                values.push(req.body[col]);
+            }
+        }
+
+        // Si se actualiza el JSON del comprobante
+        if (req.body.json_format !== undefined) {
+            let jsonPayload = req.body.json_format;
+            let parsedJson = null;
+
+            if (typeof jsonPayload === 'string') {
+                try {
+                    parsedJson = JSON.parse(jsonPayload);
+                    if (typeof parsedJson === 'string') {
+                        try { parsedJson = JSON.parse(parsedJson); } catch (e) {}
+                    }
+                } catch (e) {}
+            } else if (typeof jsonPayload === 'object' && jsonPayload !== null) {
+                parsedJson = jsonPayload;
+                jsonPayload = JSON.stringify(jsonPayload, null, 4);
+            }
+
+            updates.push(`json_format = $${paramIdx++}`);
+            values.push(typeof jsonPayload === 'string' ? jsonPayload : JSON.stringify(jsonPayload));
+
+            // Sincronizar columnas de cabecera si el JSON fue parseado
+            if (parsedJson && typeof parsedJson === 'object') {
+                if (parsedJson.totales?.total_venta !== undefined && req.body.amount === undefined) {
+                    updates.push(`amount = $${paramIdx++}`);
+                    values.push(Number(parsedJson.totales.total_venta) || 0);
+                }
+                const client = parsedJson.datos_del_cliente_o_receptor || parsedJson.datos_remitente;
+                if (client?.apellidos_y_nombres_o_razon_social && req.body.customer === undefined) {
+                    updates.push(`customer = $${paramIdx++}`);
+                    values.push(String(client.apellidos_y_nombres_o_razon_social).trim());
+                }
+                if (client?.numero_documento && req.body.customer_number === undefined) {
+                    updates.push(`customer_number = $${paramIdx++}`);
+                    values.push(String(client.numero_documento).trim());
+                }
+                if (parsedJson.codigo_tipo_documento && req.body.type === undefined) {
+                    updates.push(`type = $${paramIdx++}`);
+                    values.push(String(parsedJson.codigo_tipo_documento).trim());
+                }
+                if (parsedJson.serie_documento && req.body.serie === undefined) {
+                    updates.push(`serie = $${paramIdx++}`);
+                    values.push(String(parsedJson.serie_documento).trim());
+                }
+                if (parsedJson.numero_documento && req.body.numero === undefined) {
+                    updates.push(`numero = $${paramIdx++}`);
+                    values.push(Number(parsedJson.numero_documento) || 0);
+                }
+                if (parsedJson.fecha_de_emision && req.body.date === undefined) {
+                    const hora = parsedJson.hora_de_emision || '00:00:00';
+                    updates.push(`date = $${paramIdx++}`);
+                    values.push(`${parsedJson.fecha_de_emision} ${hora}`);
+                }
+            }
+        }
+
+        // Si el estado cambia a 'M' (Modificado) o 'N' (Nuevo), limpiar response_send para habilitar reenvío limpio
+        if (req.body.states === 'M' || req.body.states === 'N') {
+            updates.push(`response_send = NULL`);
+        }
+
+        updates.push(`modified = NOW()`);
+
+        if (updates.length === 1) { // Solo modified
+            return res.status(400).json({ success: false, message: 'No hay campos para actualizar' });
+        }
+
+        values.push(id);
+        const query = `UPDATE ${tenant}.document SET ${updates.join(', ')} WHERE id_document = $${paramIdx} RETURNING *`;
+        const response = await pool.query(query, values);
+
+        if (!response.rowCount) {
+            return res.status(404).json({ success: false, message: 'Documento no encontrado' });
+        }
+
+        res.status(200).json({
+            success: true,
+            message: "Comprobante actualizado correctamente",
+            response: response.rows[0],
+            data: response.rows[0],
+        });
+    } catch (error) {
+        console.error('Error en updateDocument:', error);
+        res.status(500).json({ success: false, message: error.message });
+    }
 };
 
 const deleteDocument = async (req, res, next) => {

@@ -434,14 +434,22 @@ const sendDoc = async (company, docu) => {
     if (doc) {
         return JSON.parse(doc.response_send);
     }
-    let token = company.token
+    let token = company.token;
     if (company.token_series && company.token_series.length > 0) {
-        const sale = JSON.parse(docu.json_format)
-        let branch = company.token_series.find(e => {
-            return e.series.includes(sale.serie_documento)
-        });
-        if (branch) {
-            token = branch.token
+        let sale = null;
+        try {
+            sale = typeof docu.json_format === 'string' ? JSON.parse(docu.json_format) : docu.json_format;
+            if (typeof sale === 'string') {
+                try { sale = JSON.parse(sale); } catch (e) {}
+            }
+        } catch (e) {}
+        if (sale?.serie_documento) {
+            let branch = company.token_series.find(e => {
+                return Array.isArray(e.series) && e.series.includes(sale.serie_documento);
+            });
+            if (branch?.token) {
+                token = branch.token;
+            }
         }
     }
     let result;
@@ -735,10 +743,18 @@ const sendAllDocsPerCompany = async (company, docus, options = {}) => {
     const isCronSource = options.source === 'cron';
 
     for (let docu of docus) {
-        if (validarMensajeError(JSON.parse(docu.response_send)) === false) {
-            // console.log(`Saltando error: ${docu.response_send}`);
-            num_error += 1;
-            continue;
+        if (docu.states !== 'M' && docu.states !== 'N' && docu.response_send) {
+            let parsedRes = null;
+            try {
+                parsedRes = typeof docu.response_send === 'string' ? JSON.parse(docu.response_send) : docu.response_send;
+                if (typeof parsedRes === 'string') {
+                    try { parsedRes = JSON.parse(parsedRes); } catch (e) {}
+                }
+            } catch (e) {}
+            if (parsedRes && validarMensajeError(parsedRes) === false) {
+                num_error += 1;
+                continue;
+            }
         }
         let url = `${company.url}/api/`;
         switch (docu.type) {
@@ -1086,38 +1102,55 @@ const consultAllAnulateDocsAllCompanies = async (options = {}) => {
 
 const getAllRejectedDocsAllCompanies = async () => {
     try {
-        const schemas = await selectAllApiCompany();
+        const { rows: schemas } = await pool.query(
+            `SELECT id_company, company_number, company, url, token, tenant, state
+             FROM public.company
+             WHERE state = true
+             ORDER BY company ASC`
+        );
 
         if (!schemas || schemas.length === 0) {
             return [];
         }
 
-        const results = await Promise.allSettled(
-            schemas.map(async (schema) => {
-                // Validar el nombre del schema por seguridad
-                if (!/^[a-zA-Z0-9_]+$/.test(schema.tenant)) {
-                    throw new Error(`Invalid schema name: ${schema.tenant}`);
-                }
+        const validSchemas = schemas.filter(s => s.tenant && /^[a-zA-Z0-9_]+$/.test(s.tenant));
+        if (validSchemas.length === 0) return [];
 
-                const query = `
-                SELECT id_document, TO_CHAR(date::DATE, 'yyyy-mm-dd') AS date, cod_sale, type, serie, numero, 
-                        customer_number, customer, amount, states, json_format, response_send, response_anulate, 
-                        id_company, external_id
-                FROM ${schema.tenant}.document 
-                WHERE verified IS NOT TRUE AND states = 'R'
-                `;
+        const unionQueries = validSchemas.map((s) => `
+            SELECT id_document, 
+                   TO_CHAR(date::DATE, 'yyyy-mm-dd') AS date, 
+                   cod_sale, type, serie, numero, 
+                   customer_number, customer, amount, states, verified,
+                   json_format, response_send, response_anulate, 
+                   id_company, external_id,
+                   '${s.tenant}' AS _tenant
+            FROM ${s.tenant}.document 
+            WHERE states = 'R' AND (verified IS NULL OR verified = false)
+        `);
 
-                const { rows } = await pool.query(query);
-                return { ...schema, rows };
-            })
-        );
+        const megaQuery = unionQueries.join('\nUNION ALL\n');
+        const { rows: allRejected } = await pool.query(megaQuery);
 
-        // Filtrar solo las respuestas exitosas con resultados
-        const filtered = results
-            .filter(r => r.status === 'fulfilled' && r.value.rows.length > 0)
-            .map(r => r.value);
+        if (!allRejected || allRejected.length === 0) {
+            return [];
+        }
 
-        return filtered;
+        // Agrupar filas por empresa en memoria
+        const companyMap = new Map();
+        for (const doc of allRejected) {
+            const tenant = doc._tenant;
+            if (!companyMap.has(tenant)) {
+                const schemaInfo = validSchemas.find(s => s.tenant === tenant);
+                companyMap.set(tenant, {
+                    ...schemaInfo,
+                    rows: []
+                });
+            }
+            const { _tenant, ...cleanDoc } = doc;
+            companyMap.get(tenant).rows.push(cleanDoc);
+        }
+
+        return Array.from(companyMap.values());
 
     } catch (error) {
         console.error('Error en getAllRejectedDocsAllCompanies:', error);

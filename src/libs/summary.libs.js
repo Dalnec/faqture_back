@@ -1,6 +1,7 @@
 const pool = require('../db');
 const { ApiClient } = require('./api.libs');
 const { selectAllApiCompany } = require('./company.libs');
+const { resetTicketSingleShipment } = require('./connection');
 const { notifyError } = require('./logger');
 
 /**
@@ -330,6 +331,14 @@ const processSummariesAndPendingForCompany = async (company, options = {}) => {
             if (pendingDates.length > 0) {
                 console.log(`[Summary Libs] ${company.tenant} tiene boletas/notas pendientes (${effectiveBoletaTypes.join(',')}) en ${pendingDates.length} fechas:`, pendingDates);
                 
+                // Ejecutar UPDATE documents SET ticket_single_shipment = 0 WHERE ticket_single_shipment = 1
+                // para asegurar que el PRO incluya todas las boletas registradas en el resumen
+                try {
+                    await resetTicketSingleShipment(company.url);
+                } catch (e) {
+                    console.warn(`[Summary Libs] resetTicketSingleShipment advertencia en ${company.tenant}:`, e.message);
+                }
+
                 for (const date of pendingDates) {
                     summaryStats.datesProcessed++;
                     const resSummary = await sendDailySummaryForDate(company, date);
