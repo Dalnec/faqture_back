@@ -51,6 +51,9 @@ const createTenant = async (req, res, next) => {
                 UNIQUE (serie, numero)
             );`
         );
+        await pool.query(
+            `CREATE INDEX IF NOT EXISTS idx_document_states_rejected ON ${schema}.document (states, verified) WHERE states = 'R';`
+        );
 
         res.json({
             message: 'Success',
@@ -92,6 +95,9 @@ const createTenantCompany = async (schema) => {
                 PRIMARY KEY (id_document),
                 UNIQUE (serie, numero)
             );`
+        );
+        await pool.query(
+            `CREATE INDEX IF NOT EXISTS idx_document_states_rejected ON ${schema}.document (states, verified) WHERE states = 'R';`
         );
 
         return true
