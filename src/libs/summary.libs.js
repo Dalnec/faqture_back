@@ -327,19 +327,27 @@ const processSummariesAndPendingForCompany = async (company, options = {}) => {
 
         // ─── 1. Procesar Resúmenes Diarios de Boletas por Fecha ───
         if (effectiveBoletaTypes && effectiveBoletaTypes.length > 0) {
-            const pendingDates = await getPendingBoletaDates(company.tenant, effectiveBoletaTypes, options?.maxDaysBack || 45);
-            if (pendingDates.length > 0) {
-                console.log(`[Summary Libs] ${company.tenant} tiene boletas/notas pendientes (${effectiveBoletaTypes.join(',')}) en ${pendingDates.length} fechas:`, pendingDates);
-                
-                // Ejecutar UPDATE documents SET ticket_single_shipment = 0 WHERE ticket_single_shipment = 1
-                // para asegurar que el PRO incluya todas las boletas registradas en el resumen
-                try {
-                    await resetTicketSingleShipment(company.url);
-                } catch (e) {
-                    console.warn(`[Summary Libs] resetTicketSingleShipment advertencia en ${company.tenant}:`, e.message);
-                }
+            // Ejecutar UPDATE documents SET ticket_single_shipment = 0 de forma preventiva
+            // para asegurar que el PRO incluya todas las boletas registradas en el resumen
+            try {
+                await resetTicketSingleShipment(company.url);
+            } catch (e) {
+                console.warn(`[Summary Libs] resetTicketSingleShipment advertencia en ${company.tenant}:`, e.message);
+            }
 
-                for (const date of pendingDates) {
+            const pendingDates = await getPendingBoletaDates(company.tenant, effectiveBoletaTypes, options?.maxDaysBack || 45);
+            
+            // Incluir fechas pendientes y asegurar fechas recientes (hoy y ayer) para capturar ventas del día
+            const datesToProcess = [...pendingDates];
+            const today = new Date().toISOString().split('T')[0];
+            const yesterday = new Date(Date.now() - 86400000).toISOString().split('T')[0];
+            if (!datesToProcess.includes(today)) datesToProcess.push(today);
+            if (!datesToProcess.includes(yesterday)) datesToProcess.push(yesterday);
+
+            if (datesToProcess.length > 0) {
+                console.log(`[Summary Libs] ${company.tenant} procesando resúmenes (${effectiveBoletaTypes.join(',')}) en ${datesToProcess.length} fechas:`, datesToProcess);
+
+                for (const date of datesToProcess) {
                     summaryStats.datesProcessed++;
                     const resSummary = await sendDailySummaryForDate(company, date);
                     
