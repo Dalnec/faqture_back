@@ -434,14 +434,22 @@ const sendDoc = async (company, docu) => {
     if (doc) {
         return JSON.parse(doc.response_send);
     }
-    let token = company.token
+    let token = company.token;
     if (company.token_series && company.token_series.length > 0) {
-        const sale = JSON.parse(docu.json_format)
-        let branch = company.token_series.find(e => {
-            return e.series.includes(sale.serie_documento)
-        });
-        if (branch) {
-            token = branch.token
+        let sale = null;
+        try {
+            sale = typeof docu.json_format === 'string' ? JSON.parse(docu.json_format) : docu.json_format;
+            if (typeof sale === 'string') {
+                try { sale = JSON.parse(sale); } catch (e) {}
+            }
+        } catch (e) {}
+        if (sale?.serie_documento) {
+            let branch = company.token_series.find(e => {
+                return Array.isArray(e.series) && e.series.includes(sale.serie_documento);
+            });
+            if (branch?.token) {
+                token = branch.token;
+            }
         }
     }
     let result;
@@ -735,10 +743,18 @@ const sendAllDocsPerCompany = async (company, docus, options = {}) => {
     const isCronSource = options.source === 'cron';
 
     for (let docu of docus) {
-        if (validarMensajeError(JSON.parse(docu.response_send)) === false) {
-            // console.log(`Saltando error: ${docu.response_send}`);
-            num_error += 1;
-            continue;
+        if (docu.states !== 'M' && docu.states !== 'N' && docu.response_send) {
+            let parsedRes = null;
+            try {
+                parsedRes = typeof docu.response_send === 'string' ? JSON.parse(docu.response_send) : docu.response_send;
+                if (typeof parsedRes === 'string') {
+                    try { parsedRes = JSON.parse(parsedRes); } catch (e) {}
+                }
+            } catch (e) {}
+            if (parsedRes && validarMensajeError(parsedRes) === false) {
+                num_error += 1;
+                continue;
+            }
         }
         let url = `${company.url}/api/`;
         switch (docu.type) {
