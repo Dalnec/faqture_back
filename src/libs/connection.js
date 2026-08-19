@@ -124,15 +124,17 @@ const update_doc_api = async (ext_id = null, url) => {
     }
     return new Promise(data => {
         conn.query(query, function (error, result) {
-            // con.query(`SELECT id, external_id, group_id, series, number FROM documents WHERE external_id = '${ext_id}'`, function (error, result) { // change db->connection for your code
             if (error) {
                 console.log(error);
+                try { conn.end(); } catch (e) {}
                 throw error;
             }
             try {
                 console.log(result.affectedRows + " record(s) updated");
+                conn.end();
                 data(result[0]);
             } catch (error) {
+                try { conn.end(); } catch (e) {}
                 data({});
                 throw error;
             }
@@ -148,8 +150,10 @@ const checkConnection = async (url = '') => {
         conn.query(query, function (error, result, fields) {
             if (error) {
                 console.log(error);
+                try { conn.end(); } catch (e) {}
                 throw error;
             }
+            conn.end();
             resolve(result);
         });
     })
@@ -176,11 +180,43 @@ const listReportDocuments = async (url, filters) => {
         conn.query(query, function (error, result, fields) {
             if (error) {
                 console.log(error);
+                try { conn.end(); } catch (e) {}
                 throw error;
             }
+            conn.end();
             resolve(result);
         });
     })
 }
 
-module.exports = { update_doc_api, checkConnection, listReportDocuments };
+const resetTicketSingleShipment = async (url = '') => {
+    try {
+        if (!url) return { success: false, message: 'URL no provista' };
+        const query = "UPDATE documents SET ticket_single_shipment = 0 WHERE ticket_single_shipment = 1";
+        const conn = await create_mysql_connection(url);
+
+        return new Promise((resolve) => {
+            conn.query(query, function (error, result) {
+                if (error) {
+                    console.error('[resetTicketSingleShipment] Error en MySQL query:', error.message);
+                    try { conn.end(); } catch (e) {}
+                    return resolve({ success: false, message: error.message });
+                }
+                try {
+                    const affected = result?.affectedRows || 0;
+                    console.log(`[resetTicketSingleShipment] ${affected} boletas actualizadas con ticket_single_shipment = 0 en ${url}`);
+                    conn.end();
+                    resolve({ success: true, affectedRows: affected });
+                } catch (e) {
+                    try { conn.end(); } catch (err) {}
+                    resolve({ success: true, affectedRows: 0 });
+                }
+            });
+        });
+    } catch (err) {
+        console.warn(`[resetTicketSingleShipment] No se pudo conectar a MySQL para ${url}:`, err.message);
+        return { success: false, message: err.message };
+    }
+};
+
+module.exports = { update_doc_api, checkConnection, listReportDocuments, resetTicketSingleShipment };
