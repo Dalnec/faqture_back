@@ -1102,38 +1102,55 @@ const consultAllAnulateDocsAllCompanies = async (options = {}) => {
 
 const getAllRejectedDocsAllCompanies = async () => {
     try {
-        const schemas = await selectAllApiCompany();
+        const { rows: schemas } = await pool.query(
+            `SELECT id_company, company_number, company, url, token, tenant, state
+             FROM public.company
+             WHERE state = true
+             ORDER BY company ASC`
+        );
 
         if (!schemas || schemas.length === 0) {
             return [];
         }
 
-        const results = await Promise.allSettled(
-            schemas.map(async (schema) => {
-                // Validar el nombre del schema por seguridad
-                if (!/^[a-zA-Z0-9_]+$/.test(schema.tenant)) {
-                    throw new Error(`Invalid schema name: ${schema.tenant}`);
-                }
+        const validSchemas = schemas.filter(s => s.tenant && /^[a-zA-Z0-9_]+$/.test(s.tenant));
+        if (validSchemas.length === 0) return [];
 
-                const query = `
-                SELECT id_document, TO_CHAR(date::DATE, 'yyyy-mm-dd') AS date, cod_sale, type, serie, numero, 
-                        customer_number, customer, amount, states, json_format, response_send, response_anulate, 
-                        id_company, external_id
-                FROM ${schema.tenant}.document 
-                WHERE verified IS NOT TRUE AND states = 'R'
-                `;
+        const unionQueries = validSchemas.map((s) => `
+            SELECT id_document, 
+                   TO_CHAR(date::DATE, 'yyyy-mm-dd') AS date, 
+                   cod_sale, type, serie, numero, 
+                   customer_number, customer, amount, states, verified,
+                   json_format, response_send, response_anulate, 
+                   id_company, external_id,
+                   '${s.tenant}' AS _tenant
+            FROM ${s.tenant}.document 
+            WHERE states = 'R' AND (verified IS NULL OR verified = false)
+        `);
 
-                const { rows } = await pool.query(query);
-                return { ...schema, rows };
-            })
-        );
+        const megaQuery = unionQueries.join('\nUNION ALL\n');
+        const { rows: allRejected } = await pool.query(megaQuery);
 
-        // Filtrar solo las respuestas exitosas con resultados
-        const filtered = results
-            .filter(r => r.status === 'fulfilled' && r.value.rows.length > 0)
-            .map(r => r.value);
+        if (!allRejected || allRejected.length === 0) {
+            return [];
+        }
 
-        return filtered;
+        // Agrupar filas por empresa en memoria
+        const companyMap = new Map();
+        for (const doc of allRejected) {
+            const tenant = doc._tenant;
+            if (!companyMap.has(tenant)) {
+                const schemaInfo = validSchemas.find(s => s.tenant === tenant);
+                companyMap.set(tenant, {
+                    ...schemaInfo,
+                    rows: []
+                });
+            }
+            const { _tenant, ...cleanDoc } = doc;
+            companyMap.get(tenant).rows.push(cleanDoc);
+        }
+
+        return Array.from(companyMap.values());
 
     } catch (error) {
         console.error('Error en getAllRejectedDocsAllCompanies:', error);
