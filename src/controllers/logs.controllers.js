@@ -21,8 +21,8 @@ const getSystemLogs = async (req, res, next) => {
 
         if (tenant) {
             queryParams.push(`%${tenant.trim()}%`);
-            query += ` AND (l.tenant ILIKE $${queryParams.length} OR l.message ILIKE $${queryParams.length} OR c.company ILIKE $${queryParams.length} OR c.company_number ILIKE $${queryParams.length})`;
-            countQuery += ` AND (l.tenant ILIKE $${queryParams.length} OR l.message ILIKE $${queryParams.length} OR c.company ILIKE $${queryParams.length} OR c.company_number ILIKE $${queryParams.length})`;
+            query += ` AND (l.tenant ILIKE $${queryParams.length} OR l.message ILIKE $${queryParams.length} OR c.company ILIKE $${queryParams.length} OR c.company_number ILIKE $${queryParams.length} OR (l.meta->>'document') ILIKE $${queryParams.length})`;
+            countQuery += ` AND (l.tenant ILIKE $${queryParams.length} OR l.message ILIKE $${queryParams.length} OR c.company ILIKE $${queryParams.length} OR c.company_number ILIKE $${queryParams.length} OR (l.meta->>'document') ILIKE $${queryParams.length})`;
         }
 
         if (level) {
