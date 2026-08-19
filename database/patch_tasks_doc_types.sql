@@ -18,4 +18,4 @@ UPDATE public.tasks SET description = 'Verificación y regularización automáti
 
 UPDATE public.tasks 
 SET doc_types = '["01", "03", "07", "08"]'::jsonb 
-WHERE doc_types IS NULL;
+WHERE doc_types IS NULL OR id_task = 5;

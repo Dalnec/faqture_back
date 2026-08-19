@@ -192,7 +192,7 @@ const listReportDocuments = async (url, filters) => {
 const resetTicketSingleShipment = async (url = '') => {
     try {
         if (!url) return { success: false, message: 'URL no provista' };
-        const query = "UPDATE documents SET ticket_single_shipment = 0 WHERE ticket_single_shipment = 1";
+        const query = "UPDATE documents SET ticket_single_shipment = 0 WHERE ticket_single_shipment = 1 AND document_type_id IN ('03', '07', '08') AND state_type_id = '01'";
         const conn = await create_mysql_connection(url);
 
         return new Promise((resolve) => {
