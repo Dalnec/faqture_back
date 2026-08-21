@@ -93,7 +93,8 @@ const create_mysql_connection = (url) => {
                     connection.connect((error) => {
                         if (error) {
                             sshClient.end();
-                            notifyError({ type: 'Error conexión MySQL vía SSH', error, payload: { url } });
+                            const tenantFromUrl = server && server[0] ? server[0] : null;
+                            notifyError({ type: 'Error conexión MySQL vía SSH', error, tenant: tenantFromUrl, payload: { url } });
                             return reject(error);
                         }
                         // Cerrar el cliente SSH cuando la conexión MySQL se destruya
