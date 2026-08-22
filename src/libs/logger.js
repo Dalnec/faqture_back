@@ -156,13 +156,45 @@ const notifyError = async (ctx = {}) => {
 
     // Guardar en la base de datos (módulo system_logs) para el frontend
     try {
-        const query = `
-            INSERT INTO public.system_logs (tenant, level, message, meta)
-            VALUES ($1, $2, $3, $4)
-        `;
-        const meta = { type: logCtx.type, ruc: logCtx.ruc, document: logCtx.document, endpoint: logCtx.endpoint, payload: logCtx.payload, stack: logCtx.stack };
-        const values = [logCtx.tenant || 'system', 'error', logCtx.message, JSON.stringify(meta)];
-        pool.query(query, values).catch(err => console.error('Error insertando en system_logs:', err));
+        const isUnknownDb = typeof logCtx.message === 'string' && (
+            logCtx.message.includes('Unknown database') ||
+            logCtx.message.includes('ER_BAD_DB_ERROR')
+        );
+
+        let skipDbLog = false;
+        if (isUnknownDb) {
+            const tenantToCheck = logCtx.tenant || 'system';
+            const checkQuery = `
+                SELECT id FROM public.system_logs 
+                WHERE (tenant = $1 OR (meta->>'tenant') = $1)
+                  AND (message ILIKE '%Unknown database%' OR message ILIKE '%ER_BAD_DB_ERROR%')
+                  AND created_at >= NOW() - INTERVAL '24 hours'
+                LIMIT 1
+            `;
+            const existing = await pool.query(checkQuery, [tenantToCheck]);
+            if (existing.rowCount > 0) {
+                skipDbLog = true;
+            }
+
+            if (tenantToCheck !== 'system') {
+                pool.query(`
+                    UPDATE public.company 
+                    SET cron_enabled = false, 
+                        cron_disable_reason = 'Base de datos MySQL no existe en PRO (Unknown database)'
+                    WHERE tenant = $1
+                `, [tenantToCheck]).catch(() => {});
+            }
+        }
+
+        if (!skipDbLog) {
+            const query = `
+                INSERT INTO public.system_logs (tenant, level, message, meta)
+                VALUES ($1, $2, $3, $4)
+            `;
+            const meta = { type: logCtx.type, ruc: logCtx.ruc, document: logCtx.document, endpoint: logCtx.endpoint, payload: logCtx.payload, stack: logCtx.stack };
+            const values = [logCtx.tenant || 'system', 'error', logCtx.message, JSON.stringify(meta)];
+            pool.query(query, values).catch(err => console.error('Error insertando en system_logs:', err));
+        }
     } catch (e) {
         console.error('Error al intentar guardar log en BD:', e);
     }

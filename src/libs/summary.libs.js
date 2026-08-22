@@ -285,6 +285,64 @@ const updateBoletasRejectedForDate = async (tenant, date, effectiveBoletaTypes, 
 };
 
 /**
+ * Consulta todos los tickets de resúmenes diarios pendientes (states = 'Y') de una empresa.
+ * Si SUNAT ya los aceptó (05) o rechazó (09), actualiza los comprobantes correspondientes a 'E' o 'R'.
+ */
+const consultPendingSummaryTicketsForCompany = async (company, effectiveBoletaTypes) => {
+    try {
+        if (!company?.tenant || !company?.url || !company?.token) return 0;
+        if (!effectiveBoletaTypes || effectiveBoletaTypes.length === 0) return 0;
+
+        const typeClause = buildSqlInClause(effectiveBoletaTypes);
+        const query = `
+            SELECT id_document, TO_CHAR(date::DATE, 'YYYY-MM-DD') as emission_date, response_send
+            FROM ${company.tenant}.document
+            WHERE states = 'Y'
+              AND ${typeClause}
+              AND response_send IS NOT NULL
+            ORDER BY id_document DESC
+            LIMIT 100;
+        `;
+        const { rows } = await pool.query(query);
+        if (!rows || rows.length === 0) return 0;
+
+        // Agrupar por ticket único y fecha
+        const ticketsMap = new Map();
+        for (const row of rows) {
+            let resp = row.response_send;
+            if (typeof resp === 'string') {
+                try { resp = JSON.parse(resp); } catch (e) {}
+            }
+            const ticket = resp?.summary_ticket || resp?.data?.ticket;
+            const emissionDate = row.emission_date;
+            if (ticket && emissionDate && !ticketsMap.has(ticket)) {
+                ticketsMap.set(ticket, { ticket, date: emissionDate });
+            }
+        }
+
+        let regularizedTotal = 0;
+        for (const { ticket, date } of ticketsMap.values()) {
+            const resTicket = await consultSummaryTicket(company, ticket);
+            const stateTypeId = resTicket?.data?.state_type_id;
+
+            if (resTicket?.success && stateTypeId === '05') {
+                const count = await updateBoletasAcceptedForDate(company.tenant, date, effectiveBoletaTypes, resTicket);
+                regularizedTotal += count;
+                console.log(`[Summary Libs] ${company.tenant} Ticket pendiente ${ticket} para ${date} ACEPTADO en SUNAT. ${count} comprobantes regularizados a 'E'.`);
+            } else if (stateTypeId === '09') {
+                const count = await updateBoletasRejectedForDate(company.tenant, date, effectiveBoletaTypes, resTicket);
+                console.warn(`[Summary Libs] ${company.tenant} Ticket pendiente ${ticket} para ${date} RECHAZADO por SUNAT. ${count} comprobantes marcados como 'R'.`);
+            }
+        }
+
+        return regularizedTotal;
+    } catch (error) {
+        console.error(`[Summary Libs] Error consultando tickets pendientes en ${company.tenant}:`, error.message);
+        return 0;
+    }
+};
+
+/**
  * Reenvía individualmente una Factura o Nota de Factura al PRO vía POST /api/documents/send
  */
 const resendDocumentToPro = async (company, externalId) => {
@@ -325,7 +383,13 @@ const processSummariesAndPendingForCompany = async (company, options = {}) => {
         const effectiveBoletaTypes = filterTypes(docTypes, ['03', '07', '08']);
         const effectiveFacturaTypes = filterTypes(docTypes, ['01', '07', '08']);
 
-        // ─── 1. Procesar Resúmenes Diarios de Boletas por Fecha ───
+        // ─── FASE 1: Consultar Tickets de Resúmenes Pendientes ('Y') ───
+        if (effectiveBoletaTypes && effectiveBoletaTypes.length > 0) {
+            const regularizedFromTickets = await consultPendingSummaryTicketsForCompany(company, effectiveBoletaTypes);
+            summaryStats.boletasRegularized += regularizedFromTickets;
+        }
+
+        // ─── FASE 2: Procesar Nuevos Resúmenes Diarios de Boletas por Fecha ───
         if (effectiveBoletaTypes && effectiveBoletaTypes.length > 0) {
             // Ejecutar UPDATE documents SET ticket_single_shipment = 0 de forma preventiva
             // para asegurar que el PRO incluya todas las boletas registradas en el resumen
@@ -512,6 +576,7 @@ module.exports = {
     updateBoletasAcceptedForDate,
     updateBoletasPendingTicketForDate,
     updateBoletasRejectedForDate,
+    consultPendingSummaryTicketsForCompany,
     resendDocumentToPro,
     processSummariesAndPendingForCompany,
     processSummariesAndPendingAllCompanies,
