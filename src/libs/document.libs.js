@@ -718,6 +718,8 @@ const isAuthError = (result) => {
     return authPatterns.some(p => msg.toLowerCase().includes(p.toLowerCase()));
 };
 
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
 const sendAllDocsPerCompany = async (company, docus, options = {}) => {
 
     let result;
@@ -727,7 +729,14 @@ const sendAllDocsPerCompany = async (company, docus, options = {}) => {
     let api;
     const isCronSource = options.source === 'cron';
 
-    for (let docu of docus) {
+    for (let i = 0; i < docus.length; i++) {
+        const docu = docus[i];
+
+        // Pausa preventiva entre comprobantes de la misma empresa para evitar Rate Limiting (Too Many Attempts) en Facturalo PRO
+        if (i > 0) {
+            await sleep(250);
+        }
+
         if (docu.states !== 'M' && docu.states !== 'N' && docu.response_send) {
             let parsedRes = null;
             try {
@@ -753,8 +762,18 @@ const sendAllDocsPerCompany = async (company, docus, options = {}) => {
                 url += 'documents';
                 break;
         }
-        api = new ApiClient(url, company.token)
-        result = await api.sendDocument(sanitizeGuiaFormat(docu))
+        api = new ApiClient(url, company.token);
+        result = await api.sendDocument(sanitizeGuiaFormat(docu));
+
+        // Manejo inteligente ante HTTP 429 / Too Many Attempts devuelto por Facturalo PRO
+        const isRateLimit = result?.status === 429 || 
+            (typeof result?.message === 'string' && result.message.toLowerCase().includes('too many attempts'));
+
+        if (!result?.success && isRateLimit) {
+            console.warn(`[CRON] ${company.tenant}: Rate Limit detectado ('Too Many Attempts'). Pausando 2.5s antes de reintentar doc ${getDocumentLabel(docu)}...`);
+            await sleep(2500);
+            result = await api.sendDocument(sanitizeGuiaFormat(docu));
+        }
 
         if (!result.success) {
             // Detectar fallo de autenticación → abortar empresa y registrar fallo
