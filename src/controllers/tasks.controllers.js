@@ -199,20 +199,20 @@ class TaskManager {
                 console.log(`Stopped task ${taskId}`);
             }
 
-            // 2. Actualizar TODAS las tareas en una sola query
+            // 2. Actualizar TODAS las tareas en ejecución para que no queden colgadas en 'E'
             if (this.executingTasks.size > 0) {
                 const taskIds = Array.from(this.executingTasks);
-                console.log(`Resetting tasks: ${taskIds.join(', ')}`);
+                console.log(`Resetting executing tasks state: ${taskIds.join(', ')}`);
 
                 const result = await pool.query(
                     `UPDATE tasks 
-                 SET state = 'N', on_off = false, modified = NOW() 
+                 SET state = 'N', modified = NOW() 
                  WHERE id_task = ANY($1::int[])
                  RETURNING id_task, name`,
                     [taskIds]
                 );
 
-                console.log(`✅ Reset ${result.rowCount} tasks:`, result.rows);
+                console.log(`✅ Reset state to 'N' for ${result.rowCount} tasks (on_off preserved):`, result.rows);
             }
 
             // 3. Limpiar memoria
