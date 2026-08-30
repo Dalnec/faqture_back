@@ -1120,22 +1120,33 @@ const getAllRejectedDocsAllCompanies = async () => {
         const validSchemas = schemas.filter(s => s.tenant && /^[a-zA-Z0-9_]+$/.test(s.tenant));
         if (validSchemas.length === 0) return [];
 
-        const unionQueries = validSchemas.map((s) => `
-            SELECT id_document, 
-                   TO_CHAR(date::DATE, 'yyyy-mm-dd') AS date, 
-                   cod_sale, type, serie, numero, 
-                   customer_number, customer, amount, states, verified,
-                   json_format, response_send, response_anulate, 
-                   id_company, external_id,
-                   '${s.tenant}' AS _tenant
-            FROM ${s.tenant}.document 
-            WHERE states = 'R' AND (verified IS NULL OR verified = false)
-        `);
+        const chunkSize = 25;
+        const allRejected = [];
 
-        const megaQuery = unionQueries.join('\nUNION ALL\n');
-        const { rows: allRejected } = await pool.query(megaQuery);
+        for (let i = 0; i < validSchemas.length; i += chunkSize) {
+            const chunk = validSchemas.slice(i, i + chunkSize);
+            const unionQueries = chunk.map((s) => `
+                SELECT id_document, 
+                       TO_CHAR(date::DATE, 'yyyy-mm-dd') AS date, 
+                       TO_CHAR(date, 'HH24:MI:SS') AS time, 
+                       cod_sale, type, serie, numero, 
+                       customer_number, customer, amount, states, verified,
+                       json_format, response_send, response_anulate, 
+                       id_company, external_id,
+                       '${s.tenant}' AS _tenant
+                FROM ${s.tenant}.document 
+                WHERE states = 'R' AND (verified IS NULL OR verified = false)
+            `);
 
-        if (!allRejected || allRejected.length === 0) {
+            try {
+                const { rows } = await pool.query(unionQueries.join('\nUNION ALL\n'));
+                allRejected.push(...rows);
+            } catch (err) {
+                console.error('Error procesando lote de esquemas rechazados:', err.message);
+            }
+        }
+
+        if (allRejected.length === 0) {
             return [];
         }
 

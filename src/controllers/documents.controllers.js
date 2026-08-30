@@ -44,7 +44,7 @@ const getDocumentByFiltersReport = async (req, res, next) => {
         delete filters.page
         delete filters.itemsPerPage
         filters = setFiltersDocs(filters)
-        const response = await pool.query(`SELECT id_document, TO_CHAR(date::DATE, 'yyyy-mm-dd') AS date, cod_sale, type, serie, numero,
+        const response = await pool.query(`SELECT id_document, TO_CHAR(date::DATE, 'yyyy-mm-dd') AS date, TO_CHAR(date, 'HH24:MI:SS') AS time, cod_sale, type, serie, numero,
         customer_number, customer, amount, states, json_format, response_send, response_anulate, id_company, external_id FROM ${tenant}.document ${filters} ORDER BY id_document DESC`);
 
         res.json({
@@ -64,7 +64,7 @@ const getDocumentByFilters = async (req, res, next) => {
         delete filters.page
         delete filters.itemsPerPage
         filters = setFiltersDocs(filters)
-        const response = await pool.query(`SELECT id_document, TO_CHAR(date::DATE, 'yyyy-mm-dd') AS date, cod_sale, type, serie, numero,
+        const response = await pool.query(`SELECT id_document, TO_CHAR(date::DATE, 'yyyy-mm-dd') AS date, TO_CHAR(date, 'HH24:MI:SS') AS time, cod_sale, type, serie, numero,
         customer_number, customer, amount, states, json_format, response_send, response_anulate, id_company, external_id FROM ${tenant}.document ${filters} ORDER BY id_document DESC
         LIMIT ${itemsPerPage} OFFSET ${(page - 1) * itemsPerPage}`);
 
