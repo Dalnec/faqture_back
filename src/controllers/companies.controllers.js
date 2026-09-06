@@ -24,10 +24,12 @@ const { createTenantCompany } = require('./tenant.controllers')
 //         }))
 //     res.status(200).json(list)
 // }
+
 const getCompaniesList = async (req, res, next) => {
     try {
         const { page = 1, itemsPerPage = 20, company, company_number, tenant,
-            has_new, has_send_error, has_void_error, has_modified, has_void, has_void_consult, has_guia_consult } = req.query;
+            has_new, has_send_error, has_void_error, has_modified, has_void, has_void_consult, has_guia_consult,
+            has_sent, has_rejected, has_anulated, has_consulted, has_no_declare } = req.query;
 
         // Construcción dinámica del filtro de texto
         let whereClauses = [];
@@ -50,7 +52,8 @@ const getCompaniesList = async (req, res, next) => {
         const whereSQL = whereClauses.length > 0 ? "WHERE " + whereClauses.join(" OR ") : "";
 
         const statusFilterActive = has_new === 'true' || has_send_error === 'true' || has_void_error === 'true'
-            || has_modified === 'true' || has_void === 'true' || has_void_consult === 'true' || has_guia_consult === 'true';
+            || has_modified === 'true' || has_void === 'true' || has_void_consult === 'true' || has_guia_consult === 'true'
+            || has_sent === 'true' || has_rejected === 'true' || has_anulated === 'true' || has_consulted === 'true' || has_no_declare === 'true';
         const limit = Number(itemsPerPage);
         const offset = (Number(page) - 1) * limit;
 
@@ -63,7 +66,7 @@ const getCompaniesList = async (req, res, next) => {
         let response;
         if (statusFilterActive) {
             response = await pool.query(
-            `SELECT id_company, invoice_date::text AS invoice_date, invoice_status, cron_disable_reason, company_number, company, tenant, state, cron_enabled, cron_failure_count, source_type
+                `SELECT id_company, invoice_date::text AS invoice_date, invoice_status, cron_disable_reason, company_number, company, tenant, state, cron_enabled, cron_failure_count, source_type
             FROM company
             ${whereSQL}
             ORDER BY company ASC`,
@@ -97,7 +100,12 @@ const getCompaniesList = async (req, res, next) => {
                     COUNT(states) FILTER (WHERE states = 'X') AS num_error,
                     COUNT(states) FILTER (WHERE states = 'C') AS num_void_consult,
                     COUNT(states) FILTER (WHERE states = 'Z') AS num_void_error,
-                    COUNT(states) FILTER (WHERE states = 'Y') AS num_guia_consult
+                    COUNT(states) FILTER (WHERE states = 'Y') AS num_guia_consult,
+                    COUNT(states) FILTER (WHERE states = 'E') AS num_sent,
+                    COUNT(states) FILTER (WHERE states = 'R') AS num_rejected,
+                    COUNT(states) FILTER (WHERE states = 'A') AS num_anulated,
+                    COUNT(states) FILTER (WHERE states = 'W') AS num_consulted,
+                    COUNT(states) FILTER (WHERE states = 'K') AS num_no_declare
                 FROM ${data.tenant}.document
                 `;
 
@@ -120,6 +128,11 @@ const getCompaniesList = async (req, res, next) => {
                 if (has_guia_consult === 'true' && Number(item.num_guia_consult) > 0) return true;
                 if (has_send_error === 'true' && Number(item.num_error) > 0) return true;
                 if (has_void_error === 'true' && Number(item.num_void_error) > 0) return true;
+                if (has_sent === 'true' && Number(item.num_sent) > 0) return true;
+                if (has_rejected === 'true' && Number(item.num_rejected) > 0) return true;
+                if (has_anulated === 'true' && Number(item.num_anulated) > 0) return true;
+                if (has_consulted === 'true' && Number(item.num_consulted) > 0) return true;
+                if (has_no_declare === 'true' && Number(item.num_no_declare) > 0) return true;
                 return false;
             });
         }
@@ -139,8 +152,6 @@ const getCompaniesList = async (req, res, next) => {
         res.status(500).json({ error: error.message });
     }
 };
-
-
 
 const getCompaniestByFilters = async (req, res, next) => {
     try {
@@ -251,7 +262,7 @@ const updateCompany = async (req, res, next) => {
 
         if (data.invoice_status === 'Pagado') {
             shouldReactivate = true;
-            
+
             // Auto-renovación: adelantar 1 mes y volver a Pendiente
             if (data.invoice_date) {
                 const parts = data.invoice_date.split('-');
@@ -267,7 +278,7 @@ const updateCompany = async (req, res, next) => {
             const dateParts = data.invoice_date.split('-');
             const newDate = new Date(dateParts[0], dateParts[1] - 1, dateParts[2]);
             const today = new Date();
-            today.setHours(0,0,0,0);
+            today.setHours(0, 0, 0, 0);
             if (newDate >= today) {
                 shouldReactivate = true;
             }

@@ -73,24 +73,61 @@ const getEnvironmentLabel = () => {
 };
 
 const formatDateForSunat = (inputDate) => {
+    if (!inputDate) {
+        throw new Error('Fecha invalida para validacion SUNAT');
+    }
+
+    if (typeof inputDate === 'string') {
+        const trimmed = inputDate.trim();
+        // Si ya viene en formato DD/MM/YYYY
+        if (/^\d{2}\/\d{2}\/\d{4}$/.test(trimmed)) {
+            return trimmed;
+        }
+        // Si viene en formato YYYY-MM-DD o YYYY-MM-DD...
+        const ymdMatch = trimmed.match(/^(\d{4})-(\d{2})-(\d{2})/);
+        if (ymdMatch) {
+            return `${ymdMatch[3]}/${ymdMatch[2]}/${ymdMatch[1]}`;
+        }
+    }
+
     const date = new Date(inputDate);
     if (Number.isNaN(date.getTime())) {
         throw new Error('Fecha invalida para validacion SUNAT');
     }
 
-    const day = String(date.getDate()).padStart(2, '0');
-    const month = String(date.getMonth() + 1).padStart(2, '0');
-    const year = String(date.getFullYear());
-
-    return `${day}/${month}/${year}`;
+    // Usar la zona horaria oficial de Perú (America/Lima) para no desfasar días
+    const formatter = new Intl.DateTimeFormat('es-PE', {
+        timeZone: 'America/Lima',
+        day: '2-digit',
+        month: '2-digit',
+        year: 'numeric',
+    });
+    return formatter.format(date);
 };
 
 const formatDateISO = (inputDate) => {
+    if (!inputDate) return null;
+
+    if (typeof inputDate === 'string') {
+        const trimmed = inputDate.trim();
+        const ymdMatch = trimmed.match(/^(\d{4})-(\d{2})-(\d{2})/);
+        if (ymdMatch) {
+            return `${ymdMatch[1]}-${ymdMatch[2]}-${ymdMatch[3]}`;
+        }
+    }
+
     const date = new Date(inputDate);
     if (Number.isNaN(date.getTime())) {
         return null;
     }
-    return date.toISOString().slice(0, 10);
+    // Formatear en zona horaria America/Lima
+    const formatter = new Intl.DateTimeFormat('en-CA', {
+        timeZone: 'America/Lima',
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+    });
+    return formatter.format(date);
 };
 
 const getSunatToken = async () => {

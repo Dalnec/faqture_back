@@ -5,7 +5,7 @@ const { update_doc_api, checkConnection } = require('../libs/connection');
 const { select_document_by_id, select_all_documents, update_document, update_document_state, update_document_anulate, formatAnulate, sendAllDocsPerCompany, formatAnulatePerCompany, verifyingExternalIds, sendAllAnulateDocsPerCompany, countingDocsState, consultAnulation, select_all_documents_to_consult_void, sendAllConsultVoidPerCompany, sendDoc } = require('../libs/document.libs');
 const { getSettingApiRuc } = require('../libs/settings.lib');
 const { ApiRUC } = require('../libs/apiClient.lib');
-const { formatDateForSunat, translateSystemStatus, getEnvironmentLabel, validateVoucherOnSunat, SUNAT_STATUS_LABELS, translateSunatStatus } = require('../libs/sunatValidation.libs');
+const { formatDateForSunat, formatDateISO, translateSystemStatus, getEnvironmentLabel, validateVoucherOnSunat, SUNAT_STATUS_LABELS, translateSunatStatus } = require('../libs/sunatValidation.libs');
 const { getCompanyByTenant } = require('../libs/company.libs');
 
 const sendDocument = async (req, res, next) => {
@@ -540,12 +540,18 @@ const validateProSingle = async (req, res, next) => {
 
         const serieClean = String(docu.serie || '').trim();
         const numeroClean = String(docu.numero || '').trim();
-        const formattedSerieNum = `${serieClean}-${numeroClean}`;
-        const formattedPadded = `${serieClean}-${numeroClean.padStart(8, '0')}`;
+        const numeroInt = parseInt(numeroClean, 10);
 
         const match = apidocs.data.find(el => {
             if (docu.external_id && el.external_id === docu.external_id) return true;
-            if (el.number === formattedSerieNum || el.number === formattedPadded) return true;
+            if (el.number) {
+                const parts = String(el.number).trim().split('-');
+                if (parts.length === 2) {
+                    const elSerie = parts[0].trim().toUpperCase();
+                    const elNum = parseInt(parts[1].trim(), 10);
+                    if (elSerie === serieClean.toUpperCase() && elNum === numeroInt) return true;
+                }
+            }
             if (el.filename && el.filename.includes(`${serieClean}-${numeroClean}`)) return true;
             return false;
         });
@@ -690,7 +696,7 @@ const executeUnifiedValidation = async (company, docu) => {
             serie: serieClean,
             numero: numeroClean,
             fechaEmision: fechaEmision,
-            monto: docu.amount || 0,
+            monto: Number(Number(docu.amount || 0).toFixed(2)),
         });
     } catch (sunatErr) {
         console.error('Error al consultar SUNAT directamente:', sunatErr.message);
@@ -727,31 +733,41 @@ const executeUnifiedValidation = async (company, docu) => {
 
     // PASO 2: SUNAT responde No Encontrado (0) o Error de Red. Verificar en PRO.
     if (!company.url || !company.token) {
-        let nextState = ['A', 'S', 'P', 'C', 'Z'].includes(docu.states) ? 'S' : 'N';
-        await update_document_state(id_document, company.tenant, { id: id_document, state: nextState });
+        let isAnulation = ['A', 'S', 'P', 'C', 'Z'].includes(docu.states);
+        if (!isAnulation && docu.response_send) {
+            try {
+                const prev = typeof docu.response_send === 'string' ? JSON.parse(docu.response_send) : docu.response_send;
+                if (prev?.original_intention === 'S') isAnulation = true;
+            } catch(e) {}
+        }
+        let nextState = isAnulation ? 'S' : 'N';
+        await pool.query(`UPDATE ${company.tenant}.document SET states = $1, external_id = NULL, modified = NOW() WHERE id_document = $2`, [nextState, id_document]);
         return { 
             success: false, 
             message: `No encontrado en SUNAT. La empresa no cuenta con URL/Token del PRO para verificar. Estado local: ${nextState}.` 
         };
     }
 
-    let dateObj = new Date(fechaEmision);
-    if (Number.isNaN(dateObj.getTime())) {
-        dateObj = new Date(docu.date);
-    }
-
+    const dateBaseISO = formatDateISO(fechaBase) || (typeof docu.date === 'string' ? docu.date.slice(0, 10) : new Date(docu.date).toISOString().slice(0, 10));
+    const dateObj = new Date(`${dateBaseISO}T12:00:00Z`);
     const dayBefore = new Date(dateObj.getTime() - 86400000).toISOString().slice(0, 10);
     const dayAfter = new Date(dateObj.getTime() + 86400000).toISOString().slice(0, 10);
 
     const api = new ApiClient(`${company.url}/api/documents/lists/`, company.token);
     const apidocs = await api.getListDocumentByDate(`${company.url}/api/documents/lists/${dayBefore}/${dayAfter}`);
 
-    const formattedSerieNum = `${serieClean}-${numeroClean}`;
-    const formattedPadded = `${serieClean}-${numeroClean.padStart(8, '0')}`;
+    const numeroInt = parseInt(numeroClean, 10);
 
     const match = Array.isArray(apidocs?.data) ? apidocs.data.find(el => {
         if (docu.external_id && el.external_id === docu.external_id) return true;
-        if (el.number === formattedSerieNum || el.number === formattedPadded) return true;
+        if (el.number) {
+            const parts = String(el.number).trim().split('-');
+            if (parts.length === 2) {
+                const elSerie = parts[0].trim().toUpperCase();
+                const elNum = parseInt(parts[1].trim(), 10);
+                if (elSerie === serieClean.toUpperCase() && elNum === numeroInt) return true;
+            }
+        }
         if (el.filename && el.filename.includes(`${serieClean}-${numeroClean}`)) return true;
         return false;
     }) : null;
@@ -843,15 +859,66 @@ const executeUnifiedValidation = async (company, docu) => {
             };
         }
     } else {
-        const isAnulation = ['A', 'S', 'P', 'C', 'Z'].includes(docu.states);
+        // Salvaguarda: si el PRO en un intento previo ya respondió explícitamente que ya se encuentra registrado,
+        // sabemos con certeza que existe en el PRO (aunque no figure en la ventana de 3 días del listado).
+        let isAlreadyInPro = false;
+        if (docu.response_send) {
+            try {
+                const prev = typeof docu.response_send === 'string' ? JSON.parse(docu.response_send) : docu.response_send;
+                const msg = typeof prev?.message === 'string' ? prev.message : (prev?.message ? JSON.stringify(prev.message) : '');
+                if (msg.includes('ya se encuentra registrado')) {
+                    isAlreadyInPro = true;
+                }
+            } catch(e) {}
+        }
+
+        if (isAlreadyInPro) {
+            const sendResult = await sendDoc(company, docu);
+            if (sendResult.state === 'E' || sendResult.state === 'P' || sendResult.success || (typeof sendResult.message === 'string' && sendResult.message.includes('ya se encuentra registrado'))) {
+                const finalSt = sendResult.state || 'E';
+                await update_document_state(id_document, company.tenant, { id: id_document, state: finalSt });
+                return {
+                    success: true,
+                    sunat_status: 'DECLARADO',
+                    pro_status: 'REGISTRADO_PREVIAMENTE',
+                    final_state: finalSt,
+                    message: `PRO: El comprobante ya se encontraba registrado en el PRO. Sincronizado a ${finalSt}.`
+                };
+            } else {
+                await update_document_state(id_document, company.tenant, { id: id_document, state: 'Y' });
+                return {
+                    success: true,
+                    sunat_status: 'NO_ENCONTRADO',
+                    pro_status: 'REGISTRADO_PREVIAMENTE',
+                    final_state: 'Y',
+                    message: `El comprobante ya existe en el PRO pero no pudo declararse a SUNAT. Queda en estado Y.`
+                };
+            }
+        }
+
+        let isAnulation = ['A', 'S', 'P', 'C', 'Z'].includes(docu.states);
+        if (!isAnulation && docu.response_send) {
+            try {
+                const prev = typeof docu.response_send === 'string' ? JSON.parse(docu.response_send) : docu.response_send;
+                if (prev?.original_intention === 'S') isAnulation = true;
+            } catch(e) {}
+        }
         const targetState = isAnulation ? 'S' : 'N';
-        await update_document_state(id_document, company.tenant, { id: id_document, state: targetState });
+        if (targetState === 'N') {
+            await pool.query(`UPDATE ${company.tenant}.document SET states = 'N', external_id = NULL, modified = NOW() WHERE id_document = $1`, [id_document]);
+        } else {
+            // Comprobantes con intención de anularse (S, P, C, Z): se restablecen a 'S' con external_id = NULL
+            // para que Tarea 1 lo emita primero al PRO/SUNAT y luego transicione a 'P' (Por anular)
+            await pool.query(`UPDATE ${company.tenant}.document SET states = 'S', external_id = NULL, modified = NOW() WHERE id_document = $1`, [id_document]);
+        }
         return { 
             success: true, 
             sunat_status: 'NO_ENCONTRADO',
             pro_status: 'NO_EXISTE',
             final_state: targetState,
-            message: `El comprobante NO EXISTE en SUNAT ni en el PRO. Estado sincronizado a ${targetState} para envío.` 
+            message: targetState === 'S' 
+                ? 'El comprobante NO EXISTE en SUNAT ni en el PRO. Estado sincronizado a S para su emisión y posterior anulación.'
+                : 'El comprobante NO EXISTE en SUNAT ni en el PRO. Estado sincronizado a N para su emisión limpia.'
         };
     }
 };
@@ -889,7 +956,7 @@ const getCompanyErrorDocuments = async (req, res, next) => {
         const query = `
             SELECT id_document, cod_sale, serie, numero, type, states, date, amount, external_id 
             FROM ${tenant}.document 
-            WHERE states IN ('X', 'M', 'S', 'Z', 'P', 'C') AND type <> '80' 
+            WHERE states IN ('X', 'M', 'S', 'Z', 'P', 'C', 'Y') AND type <> '80' 
             ORDER BY id_document ASC
         `;
         const result = await pool.query(query);
@@ -898,6 +965,7 @@ const getCompanyErrorDocuments = async (req, res, next) => {
         let send_errors = 0;
         let void_errors = 0;
         let void_pending = 0;
+        let query_pending = 0;
 
         for (const d of docs) {
             if (['X', 'M', 'S'].includes(d.states)) {
@@ -906,6 +974,8 @@ const getCompanyErrorDocuments = async (req, res, next) => {
                 void_errors++;
             } else if (['P', 'C'].includes(d.states)) {
                 void_pending++;
+            } else if (d.states === 'Y') {
+                query_pending++;
             }
         }
 
@@ -917,6 +987,7 @@ const getCompanyErrorDocuments = async (req, res, next) => {
                 send_errors,
                 void_errors,
                 void_pending,
+                query_pending,
                 total: docs.length,
             },
             documents: docs,
