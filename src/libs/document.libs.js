@@ -1255,6 +1255,7 @@ const countingDocsState = async (tenant) => {
                                         , count(states) FILTER (WHERE states = 'X') AS num_error
                                         , count(states) FILTER (WHERE states = 'C') AS num_void_consult
                                         , count(states) FILTER (WHERE states = 'Z') AS num_void_error
+                                        , count(states) FILTER (WHERE states = 'Y') AS num_guia_consult
                                 FROM ${tenant}.document;`);
 
         if (!counting.rowCount) {

@@ -197,9 +197,10 @@ const updateBoletasAcceptedForDate = async (tenant, date, effectiveBoletaTypes, 
         const updateQuery = `
             UPDATE ${tenant}.document
             SET states = 'E',
-                response_send = COALESCE(NULLIF(response_send, ''), $1)
+                response_send = COALESCE(response_send, $1::jsonb)
             WHERE TO_CHAR(date::DATE, 'YYYY-MM-DD') = $2
               AND ${typeClause}
+              AND external_id IS NOT NULL
               AND states IN ('N', 'Y', 'S', 'X', 'M')
               AND states NOT IN ('A', 'P', 'C')
             RETURNING id_document;
@@ -237,6 +238,7 @@ const updateBoletasPendingTicketForDate = async (tenant, date, effectiveBoletaTy
                 response_send = $1
             WHERE TO_CHAR(date::DATE, 'YYYY-MM-DD') = $2
               AND ${typeClause}
+              AND external_id IS NOT NULL
               AND states IN ('N', 'S', 'X', 'M')
               AND states NOT IN ('A', 'P', 'C', 'E')
             RETURNING id_document;
