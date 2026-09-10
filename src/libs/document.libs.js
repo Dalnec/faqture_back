@@ -1165,6 +1165,17 @@ const getAllRejectedDocsAllCompanies = async () => {
             companyMap.get(tenant).rows.push(cleanDoc);
         }
 
+        // Ordenar comprobantes de cada empresa de más reciente a más antiguo
+        for (const company of companyMap.values()) {
+            company.rows.sort((a, b) => {
+                const dtA = (a.date || '') + ' ' + (a.time || '');
+                const dtB = (b.date || '') + ' ' + (b.time || '');
+                if (dtB > dtA) return 1;
+                if (dtB < dtA) return -1;
+                return (Number(b.id_document) || 0) - (Number(a.id_document) || 0);
+            });
+        }
+
         return Array.from(companyMap.values());
 
     } catch (error) {
