@@ -507,6 +507,10 @@ const validateProSingle = async (req, res, next) => {
             return res.json({ success: false, message: 'Las Notas de Venta (tipo 80) son documentos internos y no se registran en el PRO.' });
         }
 
+        if (docu.type === '09' || docu.type === '31') {
+            return res.json({ success: false, message: 'Las Guías de Remisión (tipo 09/31) se procesan por el módulo de Guías y no mediante este validador.' });
+        }
+
         if (!company.url || !company.token) {
             return res.json({ success: false, message: 'La empresa no cuenta con URL o Token del PRO configurados.' });
         }
@@ -956,7 +960,11 @@ const getCompanyErrorDocuments = async (req, res, next) => {
         const query = `
             SELECT id_document, cod_sale, serie, numero, type, states, date, amount, external_id 
             FROM ${tenant}.document 
-            WHERE states IN ('X', 'M', 'S', 'Z', 'P', 'C', 'Y') AND type <> '80' 
+            WHERE type NOT IN ('80', '09', '31')
+              AND (
+                  states IN ('X', 'M', 'S', 'Z', 'P', 'C')
+                  OR (states = 'Y' AND type IN ('03', '07', '08'))
+              )
             ORDER BY id_document ASC
         `;
         const result = await pool.query(query);
