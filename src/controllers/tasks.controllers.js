@@ -7,6 +7,7 @@ const { uploadFile, searchFile, updateFile } = require('../libs/drive.libs');
 const { sendAllDocsAllCompanies, sendAllAnulateDocsAllCompanies, consultAllAnulateDocsAllCompanies, verifyErrorDocsAllCompanies } = require('../libs/document.libs');
 const { verifyCompanyPayments } = require('../libs/company.libs');
 const { processSummariesAndPendingAllCompanies } = require('../libs/summary.libs');
+const { sendWhatsAppAuditReport } = require('../libs/report.libs');
 
 // ========== CLASE TASKMANAGER MEJORADA ==========
 class TaskManager {
@@ -33,6 +34,17 @@ class TaskManager {
                     VALUES (7, 'Verificar Comprobantes con Error', 'Verificación y regularización automática de comprobantes con error (X, M, S, Z)', true, '*/10 * * * * *', NOW(), NOW())
                     ON CONFLICT (id_task) DO UPDATE 
                     SET name = EXCLUDED.name, description = EXCLUDED.description, on_off = EXCLUDED.on_off, time = EXCLUDED.time
+                `);
+            }
+
+            // Asegurar que la tarea 8 (Reporte de Auditoría WhatsApp) exista en la tabla
+            const task8Check = await pool.query(`SELECT id_task FROM tasks WHERE id_task = 8`);
+            if (task8Check.rows.length === 0) {
+                await pool.query(`
+                    INSERT INTO tasks (id_task, name, description, on_off, time, created, modified, doc_types)
+                    VALUES (8, 'Reporte de Auditoría WhatsApp', 'Envío periódico de reporte de auditoría y diagnóstico a WhatsApp (Certificados, Rechazados, Pendientes, Guías y Anulaciones)', false, '0 8 * * *', NOW(), NOW(), '[]'::jsonb)
+                    ON CONFLICT (id_task) DO UPDATE 
+                    SET name = EXCLUDED.name, description = EXCLUDED.description
                 `);
             }
 
@@ -96,6 +108,16 @@ class TaskManager {
                 console.log('----- taskVerifyErrorDocs running ----- ');
                 const docTypes = await getTaskDocTypes(7);
                 await verifyErrorDocsAllCompanies({ source: 'cron', docTypes });
+            },
+            8: async () => {
+                console.log('----- taskWhatsAppAuditReport running ----- ');
+                try {
+                    const res = await sendWhatsAppAuditReport();
+                    console.log('✅ taskWhatsAppAuditReport enviado a WhatsApp:', res.phone);
+                } catch (err) {
+                    console.error('❌ Error en taskWhatsAppAuditReport:', err.message);
+                    throw err;
+                }
             }
         };
 
@@ -121,6 +143,10 @@ class TaskManager {
                 await taskHandlers[taskId]();       // Ejecuta la lógica correspondiente
 
                 await updateTaskState(taskId, 'C'); // Completado
+                await pool.query(
+                    `UPDATE tasks SET last_error = NULL, modified = NOW() WHERE id_task = $1`,
+                    [taskId]
+                );
                 const duration = ((new Date() - startTime) / 1000).toFixed(2);
                 console.log(`✅ Task ${taskId} completed successfully in ${duration}s`);
 
@@ -549,6 +575,31 @@ cron.schedule('0 3 * * *', async () => {
 }, { timezone: "America/Lima" });
 
 
+const triggerWhatsAppReport = async (req, res, next) => {
+    try {
+        const { phone } = req.body || {};
+        const result = await sendWhatsAppAuditReport({ phone });
+        await pool.query(
+            `UPDATE tasks SET last_error = NULL, modified = NOW() WHERE id_task = 8`
+        );
+        return res.status(200).json({
+            success: true,
+            message: `Reporte de auditoría enviado con éxito a ${result.phone}`,
+            data: result
+        });
+    } catch (error) {
+        console.error('[triggerWhatsAppReport] Error:', error);
+        await pool.query(
+            `UPDATE tasks SET last_error = $1, modified = NOW() WHERE id_task = 8`,
+            [error.message]
+        );
+        return res.status(500).json({
+            success: false,
+            message: error.message || 'Error al enviar reporte de auditoría por WhatsApp'
+        });
+    }
+};
+
 module.exports = {
     getTask,
     getTasks,
@@ -563,4 +614,5 @@ module.exports = {
     taskManager,
     initTaskManager,
     sendallDocumentsCompanies,
+    triggerWhatsAppReport,
 };

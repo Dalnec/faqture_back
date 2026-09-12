@@ -5,6 +5,7 @@ const commander_1 = require("commander");
 const logs_1 = require("./commands/logs");
 const documents_1 = require("./commands/documents");
 const customers_1 = require("./commands/customers");
+const report_1 = require("./commands/report");
 const db_1 = require("./db");
 const program = new commander_1.Command();
 program
@@ -14,6 +15,7 @@ program
 program.addCommand(logs_1.logsCommand);
 program.addCommand(documents_1.documentsCommand);
 program.addCommand(customers_1.customersCommand);
+program.addCommand(report_1.reportCommand);
 // Comando de prueba de estado
 program
     .command('status')

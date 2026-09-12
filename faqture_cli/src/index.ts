@@ -3,6 +3,7 @@ import { Command } from 'commander';
 import { logsCommand } from './commands/logs';
 import { documentsCommand } from './commands/documents';
 import { customersCommand } from './commands/customers';
+import { reportCommand } from './commands/report';
 import { pool } from './db';
 
 const program = new Command();
@@ -15,6 +16,7 @@ program
 program.addCommand(logsCommand);
 program.addCommand(documentsCommand);
 program.addCommand(customersCommand);
+program.addCommand(reportCommand);
 
 // Comando de prueba de estado
 program

@@ -66,7 +66,7 @@ const getCompaniesList = async (req, res, next) => {
         let response;
         if (statusFilterActive) {
             response = await pool.query(
-                `SELECT id_company, invoice_date::text AS invoice_date, invoice_status, cron_disable_reason, company_number, company, tenant, state, cron_enabled, cron_failure_count, source_type
+                `SELECT id_company, invoice_date::text AS invoice_date, invoice_status, cron_disable_reason, company_number, company, tenant, state, cron_enabled, cron_failure_count, source_type, web_url, url, zenda_url
             FROM company
             ${whereSQL}
             ORDER BY company ASC`,
@@ -75,7 +75,7 @@ const getCompaniesList = async (req, res, next) => {
         } else {
             const paginatedParams = [...params, limit, offset];
             response = await pool.query(
-                `SELECT id_company, invoice_date::text AS invoice_date, invoice_status, cron_disable_reason, company_number, company, tenant, state, cron_enabled, cron_failure_count, source_type
+                `SELECT id_company, invoice_date::text AS invoice_date, invoice_status, cron_disable_reason, company_number, company, tenant, state, cron_enabled, cron_failure_count, source_type, web_url, url, zenda_url
                 FROM company
                 ${whereSQL}
                 ORDER BY company ASC
@@ -109,10 +109,27 @@ const getCompaniesList = async (req, res, next) => {
                 FROM ${data.tenant}.document
                 `;
 
-                const { rows } = await pool.query(statsQuery);
+                const lastDocQuery = `
+                SELECT type, serie, numero, date, states
+                FROM ${data.tenant}.document
+                ORDER BY id_document DESC LIMIT 1
+                `;
+
+                const [statsResult, lastDocResult] = await Promise.all([
+                    pool.query(statsQuery),
+                    pool.query(lastDocQuery)
+                ]);
+
+                const lastDoc = lastDocResult.rows[0] || null;
+
                 return {
                     ...data,
-                    ...rows[0]
+                    ...statsResult.rows[0],
+                    last_doc_type: lastDoc?.type || null,
+                    last_doc_serie: lastDoc?.serie || null,
+                    last_doc_numero: lastDoc?.numero || null,
+                    last_doc_date: lastDoc?.date || null,
+                    last_doc_states: lastDoc?.states || null
                 };
             })
         );
@@ -181,7 +198,7 @@ const getCompaniestByFilters = async (req, res, next) => {
         const response = await pool.query(
             `SELECT id_company, invoice_date::text AS invoice_date, invoice_status, cron_disable_reason, created::text, company_number, company, tenant,
             url, token, localtoken, state, autosend, zenda_url, zenda_token, zenda_state, token_series, external_api,
-            cron_enabled, cron_failure_count, source_type
+            cron_enabled, cron_failure_count, source_type, web_url
             FROM public.company ${whereSQL} ORDER BY id_company
             LIMIT $${idx++} OFFSET $${idx++}`,
             [...params, itemsPerPage, (page - 1) * itemsPerPage]
@@ -214,7 +231,7 @@ const getCompanyId = async (req, res, next) => {
 const createCompany = async (req, res, next) => {
     try {
         const { company_number, company, url, token, tenant, autosend, zenda_url, zenda_token,
-            zenda_state, token_series, external_api, source_type } = req.body
+            zenda_state, token_series, external_api, source_type, web_url } = req.body
 
         // const localtoken = encrypt(tenant)
         const localtoken = await encryptPasword(tenant)
@@ -222,10 +239,10 @@ const createCompany = async (req, res, next) => {
 
         const response = await pool.query(
             `INSERT INTO company(created, modified, company_number, company, url, token, localtoken,
-                tenant, autosend, zenda_url, zenda_token, zenda_state, token_series, external_api, source_type, invoice_date, invoice_status)
-            VALUES ( $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)`,
+                tenant, autosend, zenda_url, zenda_token, zenda_state, token_series, external_api, source_type, invoice_date, invoice_status, web_url)
+            VALUES ( $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)`,
             [now, now, company_number, company, url, token, localtoken, tenant, autosend, zenda_url,
-                zenda_token, zenda_state, token_series, external_api, source_type, (() => { const d = new Date(); d.setMonth(d.getMonth() + 1); return d.toISOString().split('T')[0]; })(), 'Pendiente']);
+                zenda_token, zenda_state, token_series, external_api, source_type, (() => { const d = new Date(); d.setMonth(d.getMonth() + 1); return d.toISOString().split('T')[0]; })(), 'Pendiente', web_url]);
 
         const createdTenant = createTenantCompany(tenant);
         if (!createdTenant) {
@@ -247,7 +264,7 @@ const updateCompany = async (req, res, next) => {
         const id = parseInt(req.params.id);
         const data = { ...req.body };
 
-        const allowedColumns = ['company_number', 'company', 'url', 'token', 'tenant', 'autosend', 'zenda_url', 'zenda_token', 'zenda_state', 'token_series', 'external_api', 'source_type', 'invoice_date', 'invoice_status', 'cron_enabled', 'cron_failure_count', 'cron_disable_reason', 'state'];
+        const allowedColumns = ['company_number', 'company', 'url', 'token', 'tenant', 'autosend', 'zenda_url', 'zenda_token', 'zenda_state', 'token_series', 'external_api', 'source_type', 'invoice_date', 'invoice_status', 'cron_enabled', 'cron_failure_count', 'cron_disable_reason', 'state', 'web_url'];
         Object.keys(data).forEach(key => {
             if (!allowedColumns.includes(key)) {
                 delete data[key];
