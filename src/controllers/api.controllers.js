@@ -582,7 +582,7 @@ const validateProSingle = async (req, res, next) => {
                 await update_document_state(id_document, company.tenant, { id: id_document, state: 'Y' });
                 return res.json({ 
                     success: true, 
-                    message: '⚠️ ATENCIÓN: El comprobante está en el PRO pero PENDIENTE de CDR/envío a SUNAT. Estado actualizado a Y. Usa la opción \'Forzar Envío PRO -> SUNAT\' para declararlo.' 
+                    message: 'ATENCIÓN: El comprobante está en el PRO pero PENDIENTE de CDR/envío a SUNAT. Estado actualizado a Y. Usa la opción \'Forzar Envío PRO -> SUNAT\' para declararlo.' 
                 });
             }
         } else if (stateTypeId === '11') {
@@ -595,7 +595,7 @@ const validateProSingle = async (req, res, next) => {
             await update_document_state(id_document, company.tenant, { id: id_document, state: 'Y' });
             return res.json({ 
                 success: true, 
-                message: `⚠️ ATENCIÓN: El comprobante está REGISTRADO en el PRO (${stateDesc}) pero PENDIENTE de envío a SUNAT. Usa la opción 'Forzar Envío PRO -> SUNAT' para declararlo.` 
+                message: `ATENCIÓN: El comprobante está REGISTRADO en el PRO (${stateDesc}) pero PENDIENTE de envío a SUNAT. Usa la opción 'Forzar Envío PRO -> SUNAT' para declararlo.` 
             });
         } else {
             return res.json({ success: true, message: `El comprobante existe en el PRO con estado: ${stateDesc} (Código: ${stateTypeId}).` });
