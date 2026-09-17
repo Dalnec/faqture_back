@@ -78,6 +78,8 @@ async function getAuditReportData({ tenant = null, concurrency = 20 } = {}) {
         companiesWithIssues: 0,
         totalRejectedSalvables: 0,
         totalPendingSalvables: 0,
+        totalConsultSalvables: 0,
+        totalAttention: 0,
         totalGuiasSalvables: 0,
         totalAnularSalvables: 0,
         companiesWithCertError: 0,
@@ -105,9 +107,27 @@ async function getAuditReportData({ tenant = null, concurrency = 20 } = {}) {
                         `),
                         pool.query(`
                             SELECT 
-                                -- Salvables (dentro del plazo legal SUNAT de 3 dias y sin verificar)
+                                -- 1. Rechazados (requieren atencion <= 3 dias)
                                 count(*) FILTER (WHERE states = 'R' AND date >= CURRENT_DATE - INTERVAL '3 days' AND (verified IS NULL OR verified = false)) as rej_salv,
-                                count(*) FILTER (WHERE date < CURRENT_DATE AND date >= CURRENT_DATE - INTERVAL '3 days' AND states IN ('N', 'Y', 'X', 'M', 'S') AND (verified IS NULL OR verified = false)) as pend_salv,
+                                -- 2. Pendientes de declarar (fechas anteriores <= 3 dias o errores de envio)
+                                count(*) FILTER (
+                                    WHERE (
+                                        (date < CURRENT_DATE AND date >= CURRENT_DATE - INTERVAL '3 days' AND states IN ('N', 'X', 'M', 'S'))
+                                        OR (date >= CURRENT_DATE AND states IN ('X', 'M'))
+                                        OR (type IN ('09', '31') AND states IN ('N', 'X') AND date >= CURRENT_DATE - INTERVAL '3 days')
+                                    )
+                                    AND (verified IS NULL OR verified = false)
+                                ) as pend_salv,
+                                -- 3. Pendientes de consultar (boletas en Y, guias en Y, o anulaciones en P/C)
+                                count(*) FILTER (
+                                    WHERE (
+                                        (states = 'Y' AND date >= CURRENT_DATE - INTERVAL '3 days')
+                                        OR (type IN ('09', '31') AND states = 'Y' AND date >= CURRENT_DATE - INTERVAL '3 days')
+                                        OR (states IN ('P', 'C') AND date >= CURRENT_DATE - INTERVAL '7 days')
+                                    )
+                                    AND (verified IS NULL OR verified = false)
+                                ) as consult_salv,
+                                -- Guias y anulaciones salvables especificas
                                 count(*) FILTER (WHERE type IN ('09', '31') AND states NOT IN ('E', 'A') AND date >= CURRENT_DATE - INTERVAL '3 days') as guias_salv,
                                 count(*) FILTER (WHERE states IN ('P', 'C') AND date >= CURRENT_DATE - INTERVAL '7 days') as anular_salv,
                                 -- Fuera de tiempo / Historicos no salvables por fecha vencida
@@ -125,6 +145,7 @@ async function getAuditReportData({ tenant = null, concurrency = 20 } = {}) {
                     const rowCounts = countsRes.rows[0] || {};
                     const rejSalv = parseInt(rowCounts.rej_salv || 0, 10);
                     const pendSalv = parseInt(rowCounts.pend_salv || 0, 10);
+                    const consultSalv = parseInt(rowCounts.consult_salv || 0, 10);
                     const guiasSalv = parseInt(rowCounts.guias_salv || 0, 10);
                     const anularSalv = parseInt(rowCounts.anular_salv || 0, 10);
                     const rejExpired = parseInt(rowCounts.rej_expired || 0, 10);
@@ -166,8 +187,9 @@ async function getAuditReportData({ tenant = null, concurrency = 20 } = {}) {
                             }
                         }
                     }
-                    // Solo se consideran como incidencias activas las salvables o problemas de certificado
-                    const hasIssues = rejSalv > 0 || pendSalv > 0 || guiasSalv > 0 || anularSalv > 0 || !!certErrorDetail;
+                    
+                    const totalAttention = rejSalv + pendSalv + consultSalv;
+                    const hasIssues = totalAttention > 0 || !!certErrorDetail;
 
                     return {
                         tenant: t,
@@ -175,6 +197,8 @@ async function getAuditReportData({ tenant = null, concurrency = 20 } = {}) {
                         company_number: c.company_number,
                         rejSalv,
                         pendSalv,
+                        consultSalv,
+                        totalAttention,
                         guiasSalv,
                         anularSalv,
                         rejExpired,
@@ -212,6 +236,8 @@ async function getAuditReportData({ tenant = null, concurrency = 20 } = {}) {
                 }
                 totals.totalRejectedSalvables += item.rejSalv;
                 totals.totalPendingSalvables += item.pendSalv;
+                totals.totalConsultSalvables += item.consultSalv;
+                totals.totalAttention += item.totalAttention;
                 totals.totalGuiasSalvables += item.guiasSalv;
                 totals.totalAnularSalvables += item.anularSalv;
                 if (item.hasCertError) totals.companiesWithCertError++;
@@ -234,9 +260,7 @@ async function getAuditReportData({ tenant = null, concurrency = 20 } = {}) {
     alerts.sort((a, b) => {
         if (a.hasCertError && !b.hasCertError) return -1;
         if (!a.hasCertError && b.hasCertError) return 1;
-        const sumA = a.rejSalv + a.pendSalv + a.guiasSalv + a.anularSalv;
-        const sumB = b.rejSalv + b.pendSalv + b.guiasSalv + b.anularSalv;
-        return sumB - sumA;
+        return (b.totalAttention || 0) - (a.totalAttention || 0);
     });
 
     return {
@@ -264,91 +288,57 @@ function getDocumentTypeName(type) {
 }
 
 /**
- * Formatea los datos de auditoría en mensajes de texto para WhatsApp.
- * Divide inteligentemente el contenido para nunca superar los 4000 caracteres por mensaje.
+ * Formatea los datos de auditoría en mensajes de texto para WhatsApp
+ * con la arquitectura resumida solicitada para soporte.
  */
 function formatWhatsAppReport(auditData) {
     const { timestamp, totals, alerts } = auditData;
-    const messages = [];
+    const corteFormatted = timestamp ? timestamp.replace(',', ' –') : formatPeruDate(new Date()).replace(',', ' –');
 
-    // =======================================================
-    // MENSAJE 1: RESUMEN GENERAL CONSOLIDADO DEL SISTEMA
-    // =======================================================
-    let summary = `*REPORTE DE AUDITORIA Y CONTROL - FAQTURE*\n`;
-    summary += `Generado: ${timestamp} (Hora Peru)\n\n`;
+    const totalPendingDeclare = totals.totalPendingSalvables || 0;
+    const totalRejected = totals.totalRejectedSalvables || 0;
+    const totalPendingConsult = totals.totalConsultSalvables || 0;
+    const totalAttention = totals.totalAttention !== undefined 
+        ? totals.totalAttention 
+        : (totalPendingDeclare + totalRejected + totalPendingConsult);
+    const companiesAttention = alerts ? alerts.length : 0;
 
-    summary += `*ACCIONES URGENTES (PLAZO SUNAT <= 3 DIAS):*\n`;
-    summary += `- Empresas con comprobantes salvables: *${totals.companiesWithSalvables}*\n`;
-    summary += `- Comprobantes rechazados salvables: *${totals.totalRejectedSalvables}*\n`;
-    summary += `- Por declarar en riesgo (<= 3 dias): *${totals.totalPendingSalvables}*\n`;
-    summary += `- Guias pendientes en plazo: *${totals.totalGuiasSalvables}*\n`;
-    summary += `- Bajas/anulaciones pendientes (<= 7 dias): *${totals.totalAnularSalvables}*\n`;
-    summary += `- Empresas con alerta de certificado / CDR: *${totals.companiesWithCertError}*\n\n`;
+    let text = `📋 REPORTE DE COMPROBANTES\n`;
+    text += `📅 Fecha y hora de corte: ${corteFormatted}\n\n`;
 
-    summary += `*CONTROL HISTORICO:*\n`;
-    summary += `- Comprobantes fuera de tiempo: *${totals.totalExpired}* (${totals.totalExpiredRejected} rechazados / ${totals.totalExpiredPending} por declarar)\n`;
-    summary += `- Total empresas evaluadas: ${totals.totalCompanies}\n`;
+    text += `Estado de los comprobantes\n`;
+    text += `📤 Pendientes de declarar: ${totalPendingDeclare}\n`;
+    text += `❌ Rechazados: ${totalRejected}\n`;
+    text += `🔎 Pendientes de consultar: ${totalPendingConsult}\n\n`;
 
-    if (alerts.length === 0) {
-        summary += `\n*Estado:* Conforme. No se registran comprobantes en riesgo ni incidencias dentro del plazo legal de SUNAT.`;
-        return [summary];
+    text += `Resumen de atención\n`;
+    text += `⚠️ Comprobantes que requieren atención: ${totalAttention}\n`;
+    text += `🏢 Empresas que requieren atención: ${companiesAttention}\n\n`;
+
+    text += `Detalle por empresa\n`;
+    if (!alerts || alerts.length === 0) {
+        text += `• Ninguna empresa requiere atención.\n`;
+        return [text.trim()];
     }
 
-    summary += `\n*Estado:* ATENCION REQUERIDA. Se identificaron ${alerts.length} empresas con comprobantes salvables en riesgo. A continuacion se remite el detalle urgente individual:`;
-    messages.push(summary);
-
-    // =======================================================
-    // MENSAJES 2 EN ADELANTE: DETALLE POR EMPRESA (SOLO SALVABLES)
-    // =======================================================
-    let detailPart = 1;
-    let currentMessage = `*DETALLE DE ACCIONES URGENTES (Parte ${detailPart})*\n----------------------------------------\n`;
+    const messages = [];
+    let currentMessage = text;
 
     for (const a of alerts) {
-        let block = `\n*${a.company.substring(0, 38).trim()}*\n`;
-        block += `   RUC/Tenant: \`${a.company_number || a.tenant}\`\n`;
+        const companyName = (a.company || a.tenant).trim();
+        const count = a.totalAttention !== undefined ? a.totalAttention : (a.pendSalv + a.rejSalv + (a.consultSalv || 0));
+        const line = `• ${companyName}: ${count} comprobantes requieren atención.\n`;
 
-        if (a.hasCertError) {
-            block += `   [CERTIFICADO / CDR]: ${a.certErrorDetail || 'Error en certificado digital'}\n`;
-        }
-        if (a.rejSalv > 0) {
-            block += `   - Rechazados salvables (<= 3 dias): *${a.rejSalv}*\n`;
-        }
-        if (a.pendSalv > 0) {
-            block += `   - Por declarar en riesgo (<= 3 dias): *${a.pendSalv}*\n`;
-        }
-        if (a.guiasSalv > 0) {
-            block += `   - Guias pendientes: *${a.guiasSalv}*\n`;
-        }
-        if (a.anularSalv > 0) {
-            block += `   - Bajas pendientes (<= 7 dias): *${a.anularSalv}*\n`;
-        }
-        if (a.expiredTotal > 0) {
-            block += `   - Fuera de tiempo (historico): ${a.expiredTotal}\n`;
-        }
-
-        // Ultimo comprobante recibido
-        if (a.lastDoc) {
-            const docName = getDocumentTypeName(a.lastDoc.type);
-            block += `   [Ultimo comprobante recibido]:\n`;
-            block += `      * ${docName} \`${a.lastDoc.serie}-${a.lastDoc.numero}\` (Estado: ${a.lastDoc.states})\n`;
-            block += `      * Emision: ${a.lastDoc.dateFormatted}\n`;
-            block += `      * Recibido: ${a.lastDoc.createdFormatted}\n`;
+        if ((currentMessage + line).length > 3800) {
+            messages.push(currentMessage.trim());
+            currentMessage = `Detalle por empresa (continuación)\n` + line;
         } else {
-            block += `   [Ultimo comprobante recibido]: Sin comprobantes registrados\n`;
-        }
-
-        // Si agregar este bloque supera 3800 caracteres, enviamos el mensaje actual y abrimos otro
-        if ((currentMessage + block).length > 3800) {
-            messages.push(currentMessage);
-            detailPart++;
-            currentMessage = `*DETALLE DE ACCIONES URGENTES (Parte ${detailPart})*\n----------------------------------------\n` + block;
-        } else {
-            currentMessage += block;
+            currentMessage += line;
         }
     }
 
     if (currentMessage.trim().length > 0) {
-        messages.push(currentMessage);
+        messages.push(currentMessage.trim());
     }
 
     return messages;
