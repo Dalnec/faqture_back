@@ -512,6 +512,15 @@ const updateDocument = async (req, res, next) => {
             return res.status(404).json({ success: false, message: 'Documento no encontrado' });
         }
 
+        if (req.body.states === 'R') {
+            try {
+                const { enqueueRejectedDocument } = require('../libs/rejected_notifier.libs');
+                enqueueRejectedDocument({ tenant, id_document: id, doc: response.rows[0] });
+            } catch (notifyErr) {
+                console.warn('[updateDocument] Error al encolar notificación de rechazado:', notifyErr.message);
+            }
+        }
+
         res.status(200).json({
             success: true,
             message: "Comprobante actualizado correctamente",
