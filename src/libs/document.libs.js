@@ -184,6 +184,15 @@ const update_document = async (id, tenant, data) => {
         const r = await pool.query(`UPDATE ${tenant}.document SET states=$1, response_send=$2, modified=$3 WHERE id_document=$4`, [data.state, JSON.stringify(datos, null, 4), now, id]);
         if (!r.rowCount) { return false; }
 
+        if (data.state === 'R') {
+            try {
+                const { enqueueRejectedDocument } = require('./rejected_notifier.libs');
+                enqueueRejectedDocument({ tenant, id_document: id });
+            } catch (notifyErr) {
+                console.warn('[update_document] Error al encolar notificación de rechazado:', notifyErr.message);
+            }
+        }
+
         return true;
 
     } catch (error) {
@@ -201,6 +210,15 @@ const update_document_state = async (id, tenant, data) => {
             [data.state, now, data.id]
         );
         if (!r.rowCount) { return false; }
+
+        if (data.state === 'R') {
+            try {
+                const { enqueueRejectedDocument } = require('./rejected_notifier.libs');
+                enqueueRejectedDocument({ tenant, id_document: id || data.id, doc: r.rows[0] });
+            } catch (notifyErr) {
+                console.warn('[update_document_state] Error al encolar notificación de rechazado:', notifyErr.message);
+            }
+        }
 
         return r.rows[0];
 
@@ -221,6 +239,16 @@ const update_returning_document = async (id, tenant, data) => {
             [data.state, JSON.stringify(datos, null, 4), now, id]
         );
         if (!r.rowCount) { return false; }
+
+        if (data.state === 'R') {
+            try {
+                const { enqueueRejectedDocument } = require('./rejected_notifier.libs');
+                enqueueRejectedDocument({ tenant, id_document: id, doc: r.rows[0] });
+            } catch (notifyErr) {
+                console.warn('[update_returning_document] Error al encolar notificación de rechazado:', notifyErr.message);
+            }
+        }
+
         return r.rows[0];
 
     } catch (error) {
@@ -1120,31 +1148,38 @@ const getAllRejectedDocsAllCompanies = async () => {
         const validSchemas = schemas.filter(s => s.tenant && /^[a-zA-Z0-9_]+$/.test(s.tenant));
         if (validSchemas.length === 0) return [];
 
-        const chunkSize = 25;
-        const allRejected = [];
-
+        const chunkSize = 35;
+        const chunks = [];
         for (let i = 0; i < validSchemas.length; i += chunkSize) {
-            const chunk = validSchemas.slice(i, i + chunkSize);
-            const unionQueries = chunk.map((s) => `
-                SELECT id_document, 
-                       TO_CHAR(date::DATE, 'yyyy-mm-dd') AS date, 
-                       TO_CHAR(date, 'HH24:MI:SS') AS time, 
-                       cod_sale, type, serie, numero, 
-                       customer_number, customer, amount, states, verified,
-                       json_format, response_send, response_anulate, 
-                       id_company, external_id,
-                       '${s.tenant}' AS _tenant
-                FROM ${s.tenant}.document 
-                WHERE states = 'R' AND (verified IS NULL OR verified = false)
-            `);
-
-            try {
-                const { rows } = await pool.query(unionQueries.join('\nUNION ALL\n'));
-                allRejected.push(...rows);
-            } catch (err) {
-                console.error('Error procesando lote de esquemas rechazados:', err.message);
-            }
+            chunks.push(validSchemas.slice(i, i + chunkSize));
         }
+
+        const batchResults = await Promise.all(
+            chunks.map(async (chunk) => {
+                const unionQueries = chunk.map((s) => `
+                    SELECT id_document, 
+                           TO_CHAR(date::DATE, 'yyyy-mm-dd') AS date, 
+                           TO_CHAR(date, 'HH24:MI:SS') AS time, 
+                           cod_sale, type, serie, numero, 
+                           customer_number, customer, amount, states, verified,
+                           json_format, response_send, response_anulate, 
+                           id_company, external_id,
+                           '${s.tenant}' AS _tenant
+                    FROM ${s.tenant}.document 
+                    WHERE states = 'R' AND (verified IS NULL OR verified = false)
+                `);
+
+                try {
+                    const { rows } = await pool.query(unionQueries.join('\nUNION ALL\n'));
+                    return rows;
+                } catch (err) {
+                    console.error('Error procesando lote de esquemas rechazados:', err.message);
+                    return [];
+                }
+            })
+        );
+
+        const allRejected = batchResults.flat();
 
         if (allRejected.length === 0) {
             return [];

@@ -278,7 +278,17 @@ const updateBoletasRejectedForDate = async (tenant, date, effectiveBoletaTypes, 
               AND states NOT IN ('A', 'P', 'C')
             RETURNING id_document;
         `;
-        const { rowCount } = await pool.query(updateQuery, [responseSendJson, date]);
+        const { rows, rowCount } = await pool.query(updateQuery, [responseSendJson, date]);
+        if (rows && rows.length > 0) {
+            try {
+                const { enqueueRejectedDocument } = require('./rejected_notifier.libs');
+                for (const r of rows) {
+                    enqueueRejectedDocument({ tenant, id_document: r.id_document });
+                }
+            } catch (notifyErr) {
+                console.warn('[updateBoletasRejectedForDate] Error encolando alertas de boletas rechazadas:', notifyErr.message);
+            }
+        }
         return rowCount || 0;
     } catch (error) {
         console.error(`[Summary Libs] Error actualizando boletas a 'R' para fecha ${date} en ${tenant}:`, error.message);
@@ -496,6 +506,12 @@ const processSummariesAndPendingForCompany = async (company, options = {}) => {
                             `UPDATE ${company.tenant}.document SET states = 'R', response_send = $1 WHERE id_document = $2`,
                             [JSON.stringify(resSend), doc.id_document]
                         );
+                        try {
+                            const { enqueueRejectedDocument } = require('./rejected_notifier.libs');
+                            enqueueRejectedDocument({ tenant: company.tenant, id_document: doc.id_document });
+                        } catch (notifyErr) {
+                            console.warn('[summary.libs] Error encolando alerta de factura rechazada:', notifyErr.message);
+                        }
                     }
                 }
             }

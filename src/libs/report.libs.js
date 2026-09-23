@@ -3,21 +3,34 @@ const { sendMessage, getTextMessageInput } = require('./whatsapp.lib');
 const { sendZendyMessage } = require('./zendy.lib');
 
 /**
- * Obtiene el número de teléfono configurado para recibir reportes de WhatsApp.
- * Prioridad: 1) public.settings ('whatsapp_report_phone'), 2) process.env.RECIPIENT_WAID
+ * Obtiene el número de teléfono exclusivo para recibir el reporte general de auditoría (Cron #8 y manual).
+ * REGLA ESTRICTA: Consulta ÚNICAMENTE 'whatsapp_report_phone'.
+ * NO consulta 'whatsapp_report_phone_2' para evitar mezclar reportes generales con comprobantes rechazados.
  */
 async function getWhatsAppRecipientPhone() {
     try {
         const res = await pool.query(
-            "SELECT value FROM public.settings WHERE key = 'whatsapp_report_phone' AND active = true LIMIT 1"
+            "SELECT value FROM public.settings WHERE key = 'whatsapp_report_phone' AND active = true ORDER BY id_settings DESC"
         );
-        if (res.rows.length > 0 && res.rows[0].value && res.rows[0].value.trim() !== '') {
-            return res.rows[0].value.trim();
-        }
+        const row = res.rows.find((r) => r.value && r.value.trim() !== '');
+        if (row) return row.value.trim();
     } catch (e) {
         console.warn('[getWhatsAppRecipientPhone] Error consultando settings:', e.message);
     }
-    return process.env.RECIPIENT_WAID || null;
+
+    if (process.env.RECIPIENT_WAID) {
+        return process.env.RECIPIENT_WAID.trim();
+    }
+
+    return null;
+}
+
+/**
+ * Retorna el número principal en array para compatibilidad.
+ */
+async function getWhatsAppRecipientPhones() {
+    const phone = await getWhatsAppRecipientPhone();
+    return phone ? [phone] : [];
 }
 
 /**
@@ -92,55 +105,100 @@ async function getAuditReportData({ tenant = null, concurrency = 20 } = {}) {
         totalPendingAnular: 0
     };
 
-    // Procesamiento por lotes paralelos para máxima velocidad sin saturar el pool de PostgreSQL
+    // Procesamiento por lotes paralelos con filtro inteligente de actividad reciente (Regla 13 - Escalabilidad 400+ tenants)
+    const cutoffDate = new Date();
+    cutoffDate.setDate(cutoffDate.getDate() - 8);
+
     for (let i = 0; i < companies.length; i += concurrency) {
         const batch = companies.slice(i, i + concurrency);
         const batchResults = await Promise.all(
             batch.map(async (c) => {
                 const t = c.tenant;
                 try {
-                    const [lastDocRes, countsRes] = await Promise.all([
-                        pool.query(`
-                            SELECT id_document, type, serie, numero, date, created, states 
-                            FROM ${t}.document 
-                            ORDER BY id_document DESC LIMIT 1
-                        `),
-                        pool.query(`
-                            SELECT 
-                                -- 1. Rechazados (requieren atencion <= 3 dias)
-                                count(*) FILTER (WHERE states = 'R' AND date >= CURRENT_DATE - INTERVAL '3 days' AND (verified IS NULL OR verified = false)) as rej_salv,
-                                -- 2. Pendientes de declarar (fechas anteriores <= 3 dias o errores de envio)
-                                count(*) FILTER (
-                                    WHERE (
-                                        (date < CURRENT_DATE AND date >= CURRENT_DATE - INTERVAL '3 days' AND states IN ('N', 'X', 'M', 'S'))
-                                        OR (date >= CURRENT_DATE AND states IN ('X', 'M'))
-                                        OR (type IN ('09', '31') AND states IN ('N', 'X') AND date >= CURRENT_DATE - INTERVAL '3 days')
-                                    )
-                                    AND (verified IS NULL OR verified = false)
-                                ) as pend_salv,
-                                -- 3. Pendientes de consultar (boletas en Y, guias en Y, o anulaciones en P/C)
-                                count(*) FILTER (
-                                    WHERE (
-                                        (states = 'Y' AND date >= CURRENT_DATE - INTERVAL '3 days')
-                                        OR (type IN ('09', '31') AND states = 'Y' AND date >= CURRENT_DATE - INTERVAL '3 days')
-                                        OR (states IN ('P', 'C') AND date >= CURRENT_DATE - INTERVAL '7 days')
-                                    )
-                                    AND (verified IS NULL OR verified = false)
-                                ) as consult_salv,
-                                -- Guias y anulaciones salvables especificas
-                                count(*) FILTER (WHERE type IN ('09', '31') AND states NOT IN ('E', 'A') AND date >= CURRENT_DATE - INTERVAL '3 days') as guias_salv,
-                                count(*) FILTER (WHERE states IN ('P', 'C') AND date >= CURRENT_DATE - INTERVAL '7 days') as anular_salv,
-                                -- Fuera de tiempo / Historicos no salvables por fecha vencida
-                                count(*) FILTER (WHERE states = 'R' AND date < CURRENT_DATE - INTERVAL '3 days') as rej_expired,
-                                count(*) FILTER (WHERE date < CURRENT_DATE - INTERVAL '3 days' AND states IN ('N', 'Y', 'X', 'M', 'S')) as pend_expired,
-                                -- Totales brutos
-                                count(*) FILTER (WHERE states = 'R') as rejected,
-                                count(*) FILTER (WHERE date < CURRENT_DATE AND states IN ('N', 'Y', 'X', 'M', 'S')) as pending_past,
-                                count(*) FILTER (WHERE type IN ('09', '31') AND states NOT IN ('E', 'A')) as pending_guias,
-                                count(*) FILTER (WHERE states IN ('P', 'C')) as pending_anular
-                            FROM ${t}.document
-                        `)
-                    ]);
+                    // 1. Verificación instantánea (<0.5ms) del último comprobante mediante índice primario
+                    const lastDocRes = await pool.query(`
+                        SELECT id_document, type, serie, numero, date, created, states 
+                        FROM ${t}.document 
+                        ORDER BY id_document DESC LIMIT 1
+                    `);
+
+                    if (lastDocRes.rows.length === 0) {
+                        return null;
+                    }
+
+                    const lastDoc = lastDocRes.rows[0];
+                    const docDate = lastDoc.date ? new Date(lastDoc.date) : null;
+
+                    // Si no tiene emisiones en los últimos 8 días, no tiene comprobantes salvables en la ventana operativa
+                    if (!docDate || docDate < cutoffDate) {
+                        return {
+                            tenant: t,
+                            company: c.company || t,
+                            company_number: c.company_number,
+                            rejSalv: 0,
+                            pendSalv: 0,
+                            consultSalv: 0,
+                            totalAttention: 0,
+                            guiasSalv: 0,
+                            anularSalv: 0,
+                            rejExpired: 0,
+                            pendExpired: 0,
+                            expiredTotal: 0,
+                            rejected: 0,
+                            pendingPast: 0,
+                            pendingGuias: 0,
+                            pendingAnular: 0,
+                            hasCertError: false,
+                            certErrorDetail: null,
+                            lastDoc: {
+                                type: lastDoc.type,
+                                serie: lastDoc.serie,
+                                numero: lastDoc.numero,
+                                dateFormatted: formatPeruDate(lastDoc.date),
+                                createdFormatted: formatPeruDate(lastDoc.created),
+                                states: lastDoc.states
+                            },
+                            hasIssues: false
+                        };
+                    }
+
+                    // 2. Solo para empresas activas recientemente, consultar incidencias en la ventana operativa
+                    const countsRes = await pool.query(`
+                        SELECT 
+                            -- 1. Rechazados (requieren atencion <= 3 dias)
+                            count(*) FILTER (WHERE states = 'R' AND date >= CURRENT_DATE - INTERVAL '3 days' AND (verified IS NULL OR verified = false)) as rej_salv,
+                            -- 2. Pendientes de declarar (fechas anteriores <= 3 dias o errores de envio)
+                            count(*) FILTER (
+                                WHERE (
+                                    (date < CURRENT_DATE AND date >= CURRENT_DATE - INTERVAL '3 days' AND states IN ('N', 'X', 'M', 'S'))
+                                    OR (date >= CURRENT_DATE AND states IN ('X', 'M'))
+                                    OR (type IN ('09', '31') AND states IN ('N', 'X') AND date >= CURRENT_DATE - INTERVAL '3 days')
+                                )
+                                AND (verified IS NULL OR verified = false)
+                            ) as pend_salv,
+                            -- 3. Pendientes de consultar (boletas en Y, guias en Y, o anulaciones en P/C)
+                            count(*) FILTER (
+                                WHERE (
+                                    (states = 'Y' AND date >= CURRENT_DATE - INTERVAL '3 days')
+                                    OR (type IN ('09', '31') AND states = 'Y' AND date >= CURRENT_DATE - INTERVAL '3 days')
+                                    OR (states IN ('P', 'C') AND date >= CURRENT_DATE - INTERVAL '7 days')
+                                )
+                                AND (verified IS NULL OR verified = false)
+                            ) as consult_salv,
+                            -- Guias y anulaciones salvables especificas
+                            count(*) FILTER (WHERE type IN ('09', '31') AND states NOT IN ('E', 'A') AND date >= CURRENT_DATE - INTERVAL '3 days') as guias_salv,
+                            count(*) FILTER (WHERE states IN ('P', 'C') AND date >= CURRENT_DATE - INTERVAL '7 days') as anular_salv,
+                            -- Fuera de tiempo dentro de la ventana evaluada
+                            count(*) FILTER (WHERE states = 'R' AND date < CURRENT_DATE - INTERVAL '3 days') as rej_expired,
+                            count(*) FILTER (WHERE date < CURRENT_DATE - INTERVAL '3 days' AND states IN ('N', 'Y', 'X', 'M', 'S')) as pend_expired,
+                            -- Totales
+                            count(*) FILTER (WHERE states = 'R') as rejected,
+                            count(*) FILTER (WHERE date < CURRENT_DATE AND states IN ('N', 'Y', 'X', 'M', 'S')) as pending_past,
+                            count(*) FILTER (WHERE type IN ('09', '31') AND states NOT IN ('E', 'A')) as pending_guias,
+                            count(*) FILTER (WHERE states IN ('P', 'C')) as pending_anular
+                        FROM ${t}.document
+                        WHERE date >= CURRENT_DATE - INTERVAL '8 days'
+                    `);
 
                     const rowCounts = countsRes.rows[0] || {};
                     const rejSalv = parseInt(rowCounts.rej_salv || 0, 10);
@@ -157,20 +215,15 @@ async function getAuditReportData({ tenant = null, concurrency = 20 } = {}) {
                     const pendingGuias = parseInt(rowCounts.pending_guias || 0, 10);
                     const pendingAnular = parseInt(rowCounts.pending_anular || 0, 10);
 
-                    const lastDoc = lastDocRes.rows[0] || null;
-
-                    // Verificar errores de certificado solo en comprobantes recientes (<= 3 dias) o si el ultimo documento emitido fue rechazado
+                    // Verificar errores de certificado solo si hay rechazados recientes en la ventana operativa
                     let certErrorDetail = null;
-                    if (rejSalv > 0 || (lastDoc && lastDoc.states === 'R')) {
+                    if (rejSalv > 0) {
                         const certCheck = await pool.query(`
                             SELECT response_send->'response'->>'code' as code,
                                    response_send->'response'->>'description' as description
                             FROM ${t}.document 
                             WHERE states = 'R' 
-                              AND (
-                                date >= CURRENT_DATE - INTERVAL '3 days'
-                                ${lastDoc ? `OR id_document = ${lastDoc.id_document}` : ''}
-                              )
+                              AND date >= CURRENT_DATE - INTERVAL '3 days'
                               AND (
                                 response_send::text ILIKE '%certificado%'
                                 OR response_send::text ILIKE '%2325%'
@@ -210,14 +263,14 @@ async function getAuditReportData({ tenant = null, concurrency = 20 } = {}) {
                         pendingAnular,
                         hasCertError: !!certErrorDetail,
                         certErrorDetail,
-                        lastDoc: lastDoc ? {
+                        lastDoc: {
                             type: lastDoc.type,
                             serie: lastDoc.serie,
                             numero: lastDoc.numero,
                             dateFormatted: formatPeruDate(lastDoc.date),
                             createdFormatted: formatPeruDate(lastDoc.created),
                             states: lastDoc.states
-                        } : null,
+                        },
                         hasIssues
                     };
                 } catch (err) {
@@ -400,5 +453,6 @@ module.exports = {
     formatWhatsAppReport,
     sendWhatsAppAuditReport,
     getWhatsAppRecipientPhone,
+    getWhatsAppRecipientPhones,
     formatPeruDate
 };

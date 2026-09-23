@@ -8,6 +8,7 @@ const { sendAllDocsAllCompanies, sendAllAnulateDocsAllCompanies, consultAllAnula
 const { verifyCompanyPayments } = require('../libs/company.libs');
 const { processSummariesAndPendingAllCompanies } = require('../libs/summary.libs');
 const { sendWhatsAppAuditReport } = require('../libs/report.libs');
+const { notifyPendingRejectedDocuments } = require('../libs/rejected_notifier.libs');
 
 // ========== CLASE TASKMANAGER MEJORADA ==========
 class TaskManager {
@@ -113,9 +114,11 @@ class TaskManager {
                 console.log('----- taskWhatsAppAuditReport running ----- ');
                 try {
                     const res = await sendWhatsAppAuditReport();
-                    console.log('✅ taskWhatsAppAuditReport enviado a WhatsApp:', res.phone);
+                    console.log('taskWhatsAppAuditReport enviado a WhatsApp:', res.phone);
+                    const rejRes = await notifyPendingRejectedDocuments();
+                    console.log('notifyPendingRejectedDocuments completado. Comprobantes procesados:', rejRes.count);
                 } catch (err) {
-                    console.error('❌ Error en taskWhatsAppAuditReport:', err.message);
+                    console.error('Error en taskWhatsAppAuditReport:', err.message);
                     throw err;
                 }
             }
@@ -582,6 +585,10 @@ const triggerWhatsAppReport = async (req, res, next) => {
         await pool.query(
             `UPDATE tasks SET last_error = NULL, modified = NOW() WHERE id_task = 8`
         );
+        // Notificar en background los rechazados pendientes (con intervalo de 1 min)
+        notifyPendingRejectedDocuments().catch((err) => {
+            console.error('[triggerWhatsAppReport] Error procesando rechazados:', err.message);
+        });
         return res.status(200).json({
             success: true,
             message: `Reporte de auditoría enviado con éxito a ${result.phone}`,
