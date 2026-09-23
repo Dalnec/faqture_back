@@ -66,25 +66,27 @@ function extractRejectionReason(responseSend) {
 
 /**
  * Formatea el texto de la alerta individual de comprobante rechazado para WhatsApp.
+ * Formato exacto solicitado: Empresa, Comprobante, Fecha de emisión, Cliente, Total (sin motivo de rechazo).
  */
 function formatRejectedVoucherAlert({ tenant, company, company_number, doc }) {
-    const typeName = getDocumentTypeName(doc.type);
-    const voucherNum = `${doc.serie || ''}-${String(doc.numero || '').padStart(8, '0')}`;
-    const dateStr = formatPeruDate(doc.date);
-    const amountStr = Number(doc.amount || 0).toLocaleString('es-PE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-    const clientStr = [doc.customer_number, doc.customer].filter(Boolean).join(' - ') || 'No especificado';
-    const reason = extractRejectionReason(doc.response_send);
+    const typeName = getDocumentTypeName(doc?.type);
+    const voucherNum = `${doc?.serie || ''}-${String(doc?.numero || '').padStart(8, '0')}`;
+    const dateStr = formatPeruDate(doc?.date);
+    const amountStr = Number(doc?.amount || 0).toLocaleString('es-PE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    const clientStr = [doc?.customer_number, doc?.customer].filter(Boolean).join(' - ') || 'No especificado';
 
     return (
-        `ALERTA: COMPROBANTE RECHAZADO SUNAT\n\n` +
-        `Empresa: ${company || tenant} (RUC: ${company_number || 'N/A'})\n` +
-        `Comprobante: ${typeName} ${voucherNum}\n` +
-        `Fecha de emisión: ${dateStr}\n` +
-        `Cliente: ${clientStr}\n` +
-        `Total: S/ ${amountStr}\n\n` +
-        `Motivo de rechazo SUNAT:\n${reason}`
+        `🚨 ALERTA: COMPROBANTE RECHAZADO SUNAT\n\n` +
+        `🏢 Empresa:  ${company || tenant}  (RUC: ${company_number || 'N/A'})\n` +
+        `📄 Comprobante: ${typeName} ${voucherNum}\n` +
+        `📅 Fecha de emisión: ${dateStr}\n` +
+        `👤 Cliente: ${clientStr}\n` +
+        `💰 Total: S/ ${amountStr}`
     );
 }
+
+// Alias para compatibilidad
+const formatRejectedAlert = formatRejectedVoucherAlert;
 
 /**
  * Consulta de alta eficiencia (Regla 13) para obtener comprobantes rechazados ('states = R')
@@ -194,7 +196,7 @@ class RejectedNotificationQueue {
     }
 
     /**
-     * Procesa la cola secuencialmente con pausas de 1 minuto entre mensajes.
+     * Procesa la cola secuencialmente con pausas de 1 minuto entre comprobantes rechazados.
      */
     async processQueue() {
         if (this.isProcessing) return;
@@ -213,7 +215,8 @@ class RejectedNotificationQueue {
     }
 
     /**
-     * Despacha un comprobante a los números configurados con la pausa requerida.
+     * Despacha un comprobante rechazado con la información completa requerida (sin motivo de rechazo)
+     * y con la pausa obligatoria de 1 minuto (60s) entre envíos.
      */
     async dispatchItem(item) {
         const phone = await getRejectedAlertRecipientPhone();
@@ -227,10 +230,10 @@ class RejectedNotificationQueue {
         let companyName = item.company;
         let companyRuc = item.company_number;
 
-        if (!docData) {
+        if (!docData || !docData.date || !docData.amount || !docData.customer) {
             try {
                 const docRes = await pool.query(`
-                    SELECT id_document, date, type, serie, numero, customer_number, customer, amount, response_send, states
+                    SELECT id_document, date, type, serie, numero, customer_number, customer, amount, states
                     FROM ${item.tenant}.document
                     WHERE id_document = $1
                 `, [item.id_document]);
@@ -305,8 +308,7 @@ class RejectedNotificationQueue {
             console.error('[RejectedNotifier] Error registrando en BD:', dbErr.message);
         }
 
-        // Si quedan más comprobantes rechazados en la cola (ej. 20 seguidas),
-        // esperar 60 segundos (1 minuto) antes de que el bucle procese el siguiente
+        // Si quedan más comprobantes rechazados en la cola, esperar 60 segundos (1 minuto) antes de enviar el siguiente
         if (this.queue.length > 0) {
             console.log(`[RejectedNotifier] Quedan ${this.queue.length} comprobantes en cola. Pausa de 60s antes de enviar el siguiente...`);
             await new Promise((resolve) => setTimeout(resolve, this.intervalMs));
@@ -357,6 +359,7 @@ module.exports = {
     getRejectedAlertRecipientPhone,
     extractRejectionReason,
     formatRejectedVoucherAlert,
+    formatRejectedAlert,
     getUnnotifiedRejectedDocuments,
     enqueueRejectedDocument,
     notifyPendingRejectedDocuments,
