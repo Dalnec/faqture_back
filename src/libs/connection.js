@@ -47,7 +47,9 @@ const create_mysql_connection = (url) => {
                 host: process.env.DB_PSE_SSH_HOST,
                 port: parseInt(process.env.DB_PSE_SSH_PORT, 10) || 22,
                 username: process.env.DB_PSE_SSH_USER,
-                privateKey: fs.readFileSync(process.env.DB_PSE_SSH_KEY_PATH)
+                privateKey: fs.readFileSync(process.env.DB_PSE_SSH_KEY_PATH),
+                keepaliveInterval: 30000,
+                readyTimeout: 20000
             }
             break;
     default:
@@ -97,9 +99,31 @@ const create_mysql_connection = (url) => {
                             notifyError({ type: 'Error conexión MySQL vía SSH', error, tenant: tenantFromUrl, payload: { url } });
                             return reject(error);
                         }
-                        // Cerrar el cliente SSH cuando la conexión MySQL se destruya
-                        connection.on('end', () => sshClient.end());
-                        connection.on('error', () => sshClient.end());
+                        // Cerrar el cliente SSH cuando la conexión MySQL termine.
+                        // mysql2 no emite 'end' en la conexión tras conn.end(), así que se
+                        // escucha el canal del túnel y se agrega un respaldo tras end()/destroy().
+                        // Sin esto cada consulta deja una sesión SSH abierta en el servidor.
+                        let tunnelClosed = false;
+                        const closeTunnel = () => {
+                            if (tunnelClosed) return;
+                            tunnelClosed = true;
+                            sshClient.end();
+                        };
+                        stream.once('end', closeTunnel);
+                        stream.once('close', closeTunnel);
+                        connection.on('error', closeTunnel);
+                        const originalEnd = connection.end.bind(connection);
+                        connection.end = (...args) => {
+                            const result = originalEnd(...args);
+                            setTimeout(closeTunnel, 5000).unref();
+                            return result;
+                        };
+                        const originalDestroy = connection.destroy.bind(connection);
+                        connection.destroy = (...args) => {
+                            const result = originalDestroy(...args);
+                            closeTunnel();
+                            return result;
+                        };
                         resolve(connection);
                     });
                 });
