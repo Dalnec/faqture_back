@@ -20,22 +20,37 @@ function getDocumentTypeName(type) {
 }
 
 /**
- * Obtiene el número de teléfono exclusivo para recibir alertas de comprobantes rechazados.
- * REGLA ESTRICTA: Consulta ÚNICAMENTE 'whatsapp_report_phone_2'.
+ * Obtiene la lista de números telefónicos exclusivos para recibir alertas de comprobantes rechazados.
+ * REGLA ESTRICTA: Consulta ÚNICAMENTE 'whatsapp_report_phone_2', 'whatsapp_report_phone_3',
+ * 'whatsapp_report_phone_4' y 'whatsapp_report_phone_5'.
  * NUNCA hace fallback a 'whatsapp_report_phone' ni a RECIPIENT_WAID para no mezclar reportes.
  */
-async function getRejectedAlertRecipientPhone() {
+async function getRejectedAlertRecipientPhones() {
     try {
         const res = await pool.query(
-            "SELECT value FROM public.settings WHERE key = 'whatsapp_report_phone_2' AND active = true ORDER BY id_settings DESC"
+            `SELECT key, value FROM public.settings 
+             WHERE key IN ('whatsapp_report_phone_2', 'whatsapp_report_phone_3', 'whatsapp_report_phone_4', 'whatsapp_report_phone_5') 
+               AND active = true 
+             ORDER BY key ASC`
         );
-        const p2 = res.rows.find((r) => r.value && r.value.trim() !== '');
-        if (p2) return p2.value.trim();
+        const phones = res.rows
+            .map((r) => (r.value ? r.value.trim() : ''))
+            .filter((v) => v !== '');
+
+        return [...new Set(phones)];
     } catch (e) {
-        console.warn('[getRejectedAlertRecipientPhone] Error consultando settings:', e.message);
+        console.warn('[getRejectedAlertRecipientPhones] Error consultando settings:', e.message);
     }
 
-    return null;
+    return [];
+}
+
+/**
+ * Obtiene el número principal exclusivo para alertas de rechazados (compatibilidad).
+ */
+async function getRejectedAlertRecipientPhone() {
+    const phones = await getRejectedAlertRecipientPhones();
+    return phones.length > 0 ? phones[0] : null;
 }
 
 /**
@@ -219,9 +234,9 @@ class RejectedNotificationQueue {
      * y con la pausa obligatoria de 1 minuto (60s) entre envíos.
      */
     async dispatchItem(item) {
-        const phone = await getRejectedAlertRecipientPhone();
-        if (!phone) {
-            console.warn('[RejectedQueue] No hay número configurado para alertas de comprobantes rechazados.');
+        const phones = await getRejectedAlertRecipientPhones();
+        if (!phones || phones.length === 0) {
+            console.warn('[RejectedQueue] No hay números configurados para alertas de comprobantes rechazados.');
             return;
         }
 
@@ -264,27 +279,39 @@ class RejectedNotificationQueue {
             doc: docData
         });
 
-        let sentSuccessfully = false;
-        try {
-            await sendZendyMessage(phone, messageText);
-            sentSuccessfully = true;
-            console.log(`[RejectedNotifier] Alerta enviada exclusivamente al celular de rechazados (${phone}) para [${companyName}] ${docData.serie}-${docData.numero}`);
-        } catch (sendErr) {
-            console.warn(`[RejectedNotifier] Error vía Zendy a ${phone}:`, sendErr.message);
+        let anySentSuccessfully = false;
+        const notifiedPhones = [];
+
+        for (let i = 0; i < phones.length; i++) {
+            const phone = phones[i];
             try {
-                const payload = getTextMessageInput(phone, messageText);
-                await sendMessage(payload);
-                sentSuccessfully = true;
-                console.log(`[RejectedNotifier] Alerta enviada vía WhatsApp oficial a ${phone} para [${companyName}] ${docData.serie}-${docData.numero}`);
-            } catch (fallbackErr) {
-                console.error(`[RejectedNotifier] Fallback falló a ${phone}:`, fallbackErr.message);
+                await sendZendyMessage(phone, messageText);
+                notifiedPhones.push(phone);
+                anySentSuccessfully = true;
+                console.log(`[RejectedNotifier] Alerta enviada exclusivamente al celular de rechazados (${phone}) para [${companyName}] ${docData.serie}-${docData.numero}`);
+            } catch (sendErr) {
+                console.warn(`[RejectedNotifier] Error vía Zendy a ${phone}:`, sendErr.message);
+                try {
+                    const payload = getTextMessageInput(phone, messageText);
+                    await sendMessage(payload);
+                    notifiedPhones.push(phone);
+                    anySentSuccessfully = true;
+                    console.log(`[RejectedNotifier] Alerta enviada vía WhatsApp oficial a ${phone} para [${companyName}] ${docData.serie}-${docData.numero}`);
+                } catch (fallbackErr) {
+                    console.error(`[RejectedNotifier] Fallback falló a ${phone}:`, fallbackErr.message);
+                }
+            }
+
+            // Pausa preventiva de 2 segundos entre destinatarios para no saturar el canal emisor
+            if (i < phones.length - 1) {
+                await new Promise((resolve) => setTimeout(resolve, 2000));
             }
         }
 
-        // Si falló el envío en ambos proveedores (ej. corte de internet), NO marcar como notificado
+        // Si falló el envío en todos los números, NO marcar como notificado
         // para permitir que el barredor periódico (Tarea 8) lo reintente cuando vuelva la conexión
-        if (!sentSuccessfully) {
-            console.error(`[RejectedNotifier] No se pudo entregar la alerta para ${item.tenant} (${docData.serie}-${docData.numero}). Se reintentará en el próximo ciclo.`);
+        if (!anySentSuccessfully) {
+            console.error(`[RejectedNotifier] No se pudo entregar la alerta a ningún destinatario para ${item.tenant} (${docData.serie}-${docData.numero}). Se reintentará en el próximo ciclo.`);
             return;
         }
 
@@ -301,7 +328,7 @@ class RejectedNotificationQueue {
                     docData.type || null,
                     docData.serie || null,
                     cleanNumero,
-                    phone
+                    notifiedPhones.join(', ')
                 ]
             );
         } catch (dbErr) {
@@ -357,6 +384,7 @@ async function notifyPendingRejectedDocuments({ waitMs = 60000 } = {}) {
 module.exports = {
     getDocumentTypeName,
     getRejectedAlertRecipientPhone,
+    getRejectedAlertRecipientPhones,
     extractRejectionReason,
     formatRejectedVoucherAlert,
     formatRejectedAlert,
