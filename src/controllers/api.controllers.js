@@ -1,8 +1,8 @@
 const pool = require('../db');
-const { selectApiCompanyById } = require('../libs/company.libs');
+const { selectApiCompanyById, selectAllApiCompany } = require('../libs/company.libs');
 const { ApiClient } = require('../libs/api.libs');
 const { update_doc_api, checkConnection } = require('../libs/connection');
-const { select_document_by_id, select_all_documents, update_document, update_document_state, update_document_anulate, formatAnulate, sendAllDocsPerCompany, formatAnulatePerCompany, verifyingExternalIds, sendAllAnulateDocsPerCompany, countingDocsState, consultAnulation, select_all_documents_to_consult_void, sendAllConsultVoidPerCompany, sendDoc } = require('../libs/document.libs');
+const { select_document_by_id, select_all_documents, update_document, update_document_state, update_document_anulate, formatAnulate, sendAllDocsPerCompany, formatAnulatePerCompany, verifyingExternalIds, sendAllAnulateDocsPerCompany, countingDocsState, consultAnulation, select_all_documents_to_consult_void, sendAllConsultVoidPerCompany, sendDoc, recoverExistingDocumentFromPro } = require('../libs/document.libs');
 const { getSettingApiRuc } = require('../libs/settings.lib');
 const { ApiRUC } = require('../libs/apiClient.lib');
 const { formatDateForSunat, formatDateISO, translateSystemStatus, getEnvironmentLabel, validateVoucherOnSunat, SUNAT_STATUS_LABELS, translateSunatStatus } = require('../libs/sunatValidation.libs');
@@ -1006,6 +1006,70 @@ const getCompanyErrorDocuments = async (req, res, next) => {
     }
 };
 
+const repairBadGateways = async (req, res, next) => {
+    try {
+        const { id_company } = req.body || {};
+        let companies = [];
+        if (id_company) {
+            const comp = await selectApiCompanyById(id_company);
+            if (comp) companies.push(comp);
+        } else {
+            companies = await selectAllApiCompany();
+        }
+
+        const results = [];
+        for (const company of companies) {
+            const tenant = company.tenant;
+            if (!tenant || !/^[a-zA-Z0-9_]+$/.test(tenant)) continue;
+
+            const q = `
+                SELECT id_document, cod_sale, serie, numero, json_format, states, response_send, external_id, date 
+                FROM ${tenant}.document 
+                WHERE response_send::text LIKE '%Bad Gateway%' 
+                   OR response_send::text LIKE '%Gateway Timeout%' 
+                   OR response_send::text LIKE '%ya se encuentra registrado%'
+                ORDER BY id_document DESC
+            `;
+            const { rows } = await pool.query(q);
+            if (!rows || !rows.length) continue;
+
+            for (const doc of rows) {
+                const recovered = await recoverExistingDocumentFromPro(company, doc);
+                if (recovered) {
+                    await update_document(doc.id_document, tenant, recovered);
+                    results.push({
+                        tenant,
+                        id_document: doc.id_document,
+                        document: `${doc.serie}-${doc.numero}`,
+                        previous_state: doc.states,
+                        new_state: recovered.state,
+                        success: true,
+                    });
+                } else {
+                    results.push({
+                        tenant,
+                        id_document: doc.id_document,
+                        document: `${doc.serie}-${doc.numero}`,
+                        previous_state: doc.states,
+                        success: false,
+                        message: 'No encontrado en PRO para esa fecha o correlativo',
+                    });
+                }
+            }
+        }
+
+        return res.status(200).json({
+            success: true,
+            message: `Proceso de reparación finalizado. Comprobantes procesados: ${results.length}`,
+            repaired: results.filter(r => r.success).length,
+            data: results,
+        });
+    } catch (error) {
+        console.error('Error en repairBadGateways:', error);
+        return res.status(500).json({ success: false, message: error.message });
+    }
+};
+
 module.exports = {
     sendDocument,
     anulateDocument,
@@ -1023,4 +1087,5 @@ module.exports = {
     validateUnifiedSingle,
     executeUnifiedValidation,
     getCompanyErrorDocuments,
+    repairBadGateways,
 };

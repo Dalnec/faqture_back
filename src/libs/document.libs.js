@@ -124,8 +124,13 @@ const select_error_documents = async (tenant, docTypes = null) => {
 
 const select_all_responses = async (tenant) => {
     try {
-        if (!tenant) { return false; }
-        const docs = await pool.query(`SELECT id_document, json_format, response_send, states FROM ${tenant}.document WHERE response_send::text LIKE '%false%'`);
+        if (!tenant || !/^[a-zA-Z0-9_]+$/.test(tenant)) { return false; }
+        const docs = await pool.query(`SELECT id_document, json_format, response_send, states FROM ${tenant}.document 
+            WHERE response_send::text LIKE '%false%' 
+               OR response_send::text LIKE '%Bad Gateway%' 
+               OR response_send::text LIKE '%Gateway Timeout%' 
+               OR response_send::text LIKE '%ya se encuentra registrado%'
+               OR states IN ('Y', 'X')`);
         if (!docs.rowCount) { return false; }
         return docs.rows;
 
@@ -178,10 +183,22 @@ const get_docs_month_filter = async (tenant, filters) => {
 
 const update_document = async (id, tenant, data) => {
     try {
-        if (!id) { return false; }
+        if (!id || !tenant || !/^[a-zA-Z0-9_]+$/.test(tenant)) { return false; }
         const now = new Date()
-        const datos = JSON.stringify(data, null, 4)
-        const r = await pool.query(`UPDATE ${tenant}.document SET states=$1, response_send=$2, modified=$3 WHERE id_document=$4`, [data.state, JSON.stringify(datos, null, 4), now, id]);
+        const datos = typeof data === 'string' ? data : JSON.stringify(data)
+        const externalId = data.external_id || (data.data && data.data.external_id) || null;
+
+        let query;
+        let params;
+        if (externalId) {
+            query = `UPDATE ${tenant}.document SET states=$1, response_send=$2, modified=$3, external_id=COALESCE($4, external_id), verified=true WHERE id_document=$5`;
+            params = [data.state, datos, now, externalId, id];
+        } else {
+            query = `UPDATE ${tenant}.document SET states=$1, response_send=$2, modified=$3, verified=true WHERE id_document=$4`;
+            params = [data.state, datos, now, id];
+        }
+
+        const r = await pool.query(query, params);
         if (!r.rowCount) { return false; }
 
         if (data.state === 'R') {
@@ -230,14 +247,24 @@ const update_document_state = async (id, tenant, data) => {
 
 const update_returning_document = async (id, tenant, data) => {
     try {
-        if (!id) { return false; }
+        if (!id || !tenant || !/^[a-zA-Z0-9_]+$/.test(tenant)) { return false; }
         const now = new Date()
-        const datos = JSON.stringify(data, null, 4)
-        const r = await pool.query(
-            `UPDATE ${tenant}.document SET states=$1, response_send=$2, modified=$3 WHERE id_document=$4
-            RETURNING id_document, json_format, response_send, response_anulate, states, type, external_id`,
-            [data.state, JSON.stringify(datos, null, 4), now, id]
-        );
+        const datos = typeof data === 'string' ? data : JSON.stringify(data)
+        const externalId = data.external_id || (data.data && data.data.external_id) || null;
+
+        let query;
+        let params;
+        if (externalId) {
+            query = `UPDATE ${tenant}.document SET states=$1, response_send=$2, modified=$3, external_id=COALESCE($4, external_id), verified=true WHERE id_document=$5
+            RETURNING id_document, json_format, response_send, response_anulate, states, type, external_id`;
+            params = [data.state, datos, now, externalId, id];
+        } else {
+            query = `UPDATE ${tenant}.document SET states=$1, response_send=$2, modified=$3, verified=true WHERE id_document=$4
+            RETURNING id_document, json_format, response_send, response_anulate, states, type, external_id`;
+            params = [data.state, datos, now, id];
+        }
+
+        const r = await pool.query(query, params);
         if (!r.rowCount) { return false; }
 
         if (data.state === 'R') {
@@ -457,6 +484,128 @@ const formatAnulatePerCompany = async (tenant, company = null, docTypes = null) 
 }
 
 
+const isGatewayFailure = (result) => {
+    if (!result) return false;
+    const respCode = result.response?.code;
+    const respDesc = String(result.response?.description || '').toLowerCase();
+    return respCode === 'HTTP' || 
+           respDesc.includes('bad gateway') || 
+           respDesc.includes('gateway timeout') || 
+           respDesc.includes('curl error') || 
+           respDesc.includes('could not connect') ||
+           respDesc.includes('connection refused');
+};
+
+const recoverExistingDocumentFromPro = async (company, docu, cachedApiDocs = null) => {
+    try {
+        if (!company?.url || !company?.token) return null;
+
+        let date = null;
+        let serie = docu.serie;
+        let numero = docu.numero;
+
+        if (docu.json_format) {
+            try {
+                const j = typeof docu.json_format === 'string' ? JSON.parse(docu.json_format) : docu.json_format;
+                date = j.fecha_de_emision;
+                if (!serie) serie = j.serie_documento;
+                if (!numero) numero = j.numero_documento;
+            } catch (e) {}
+        }
+        if (!date && docu.date) {
+            date = typeof docu.date === 'string' ? docu.date.slice(0, 10) : new Date(docu.date).toISOString().slice(0, 10);
+        }
+
+        if (!date) return null;
+
+        let dateClean = null;
+        if (typeof date === 'string') {
+            const matchISO = date.match(/^(\d{4})-(\d{2})-(\d{2})/);
+            if (matchISO) dateClean = `${matchISO[1]}-${matchISO[2]}-${matchISO[3]}`;
+            const matchDMY = date.match(/^(\d{2})[-/](\d{2})[-/](\d{4})/);
+            if (matchDMY) dateClean = `${matchDMY[3]}-${matchDMY[2]}-${matchDMY[1]}`;
+        }
+        if (!dateClean) {
+            dateClean = String(date).slice(0, 10);
+        }
+
+        // Ventana de búsqueda +/- 1 día para prevenir desfase horario (America/Lima vs UTC)
+        const dObj = new Date(`${dateClean}T12:00:00Z`);
+        let dayBefore = dateClean;
+        let dayAfter = dateClean;
+        if (!isNaN(dObj.getTime())) {
+            dayBefore = new Date(dObj.getTime() - 86400000).toISOString().slice(0, 10);
+            dayAfter = new Date(dObj.getTime() + 86400000).toISOString().slice(0, 10);
+        }
+
+        let apidocs = cachedApiDocs;
+        if (!apidocs) {
+            let token = company.token;
+            if (company.token_series && company.token_series.length > 0 && serie) {
+                const branch = company.token_series.find(e => Array.isArray(e.series) && e.series.includes(serie));
+                if (branch?.token) token = branch.token;
+            }
+
+            const api = new ApiClient(`${company.url}/api/documents/lists/`, token);
+            apidocs = await api.getListDocumentByDate(`${company.url}/api/documents/lists/${dayBefore}/${dayAfter}`);
+        }
+
+        if (!Array.isArray(apidocs?.data)) return null;
+
+        const serieClean = String(serie || '').trim().toUpperCase();
+        const numInt = parseInt(numero, 10);
+
+        const match = apidocs.data.find(el => {
+            if (docu.external_id && el.external_id === docu.external_id) return true;
+            if (el.number) {
+                const parts = String(el.number).trim().split('-');
+                if (parts.length === 2) {
+                    return parts[0].trim().toUpperCase() === serieClean && parseInt(parts[1].trim(), 10) === numInt;
+                }
+            }
+            if (el.filename) {
+                const fn = String(el.filename).toUpperCase();
+                if (fn.includes(`${serieClean}-${numero}`) || fn.includes(`${serieClean}-${numInt}`)) return true;
+            }
+            return false;
+        });
+
+        if (!match) return null;
+
+        let st = 'Y';
+        if (match.state_type_id === '05' || (match.has_cdr === true || !!match.download_cdr)) {
+            st = (docu.states === 'P') ? 'P' : 'E'; // Si en Faqture ya estaba por anular, mantener 'P'
+        } else if (match.state_type_id === '09') {
+            st = 'R'; // Rechazado SUNAT
+        } else if (match.state_type_id === '11') {
+            st = 'A'; // Anulado
+        } else if (docu.states === 'P') {
+            st = 'P';
+        }
+
+        return {
+            success: true,
+            data: {
+                number: match.number,
+                filename: match.filename || null,
+                external_id: match.external_id,
+                state_type_id: match.state_type_id,
+                state_type_description: match.state_type_description,
+            },
+            links: {
+                xml: match.download_xml,
+                pdf: match.download_pdf,
+                cdr: match.download_cdr
+            },
+            state: st,
+            external_id: docu.external_id || match.external_id
+        };
+    } catch (err) {
+        console.error('[recoverExistingDocumentFromPro] Error al consultar PRO:', err.message);
+        return null;
+    }
+};
+
 const sendDoc = async (company, docu) => {
     let token = company.token;
     let payloadObj = null;
@@ -520,16 +669,27 @@ const sendDoc = async (company, docu) => {
 
     if (!result.success) {
         result.state = 'X'; //Error de envio al PRO
+        let isAlreadyRegistered = false;
         if (typeof result?.message === 'string') {
             if (result?.message?.search('ya se encuentra registrado') > 0) {
-                result.state = 'E';
+                isAlreadyRegistered = true;
             }
-        } else { // sometimes message is an object so show all messages
+        } else if (result?.message && typeof result.message === 'object') {
             const messages = Object.values(result.message).map(m => (Array.isArray(m) ? m.join(', ') : m)).join('; ');
             if (messages.search('ya se encuentra registrado') > 0) {
-                result.state = 'E';
+                isAlreadyRegistered = true;
             }
         }
+
+        if (isAlreadyRegistered) {
+            const recovered = await recoverExistingDocumentFromPro(company, docu);
+            if (recovered) {
+                result = recovered;
+            } else {
+                result.state = 'Y';
+            }
+        }
+
         if (result.state === 'X') {
             notifyError({
                 type:     'Fallo envío documento al PRO',
@@ -541,12 +701,17 @@ const sendDoc = async (company, docu) => {
             });
         }
     } else {
-        if (docu.states == 'S') // Cuando aun no fue declarado pero se debe anular.
-            result.state = 'P'; // Pendiente de anulación
-        else
-            result.state = 'E';
+        const isGatewayErr = isGatewayFailure(result);
 
-        if (result.data.state_type_description == 'Rechazado') {
+        if (isGatewayErr) {
+            result.state = 'Y'; // Guardado en PRO mas falló envío a SUNAT por Bad Gateway / Timeout
+        } else if (docu.states == 'S') { // Cuando aun no fue declarado pero se debe anular.
+            result.state = 'P'; // Pendiente de anulación
+        } else {
+            result.state = 'E';
+        }
+
+        if (result.data?.state_type_description == 'Rechazado') {
             result.state = 'R';
             notifyError({
                 type:     'Documento rechazado por SUNAT',
@@ -839,16 +1004,27 @@ const sendAllDocsPerCompany = async (company, docus, options = {}) => {
             }
             num_error += 1;
 
+            let isAlreadyRegistered = false;
             if (typeof result?.message === 'string') {
                 if (result?.message?.search('ya se encuentra registrado') > 0) {
-                    result.state = 'E';
+                    isAlreadyRegistered = true;
                 }
-            } else { // sometimes message is an object so show all messages
+            } else if (result?.message && typeof result.message === 'object') {
                 const messages = Object.values(result.message).map(m => (Array.isArray(m) ? m.join(', ') : m)).join('; ');
                 if (messages.search('ya se encuentra registrado') > 0) {
-                    result.state = 'E';
+                    isAlreadyRegistered = true;
                 }
             }
+
+            if (isAlreadyRegistered) {
+                const recovered = await recoverExistingDocumentFromPro(company, docu);
+                if (recovered) {
+                    result = recovered;
+                } else {
+                    result.state = 'Y';
+                }
+            }
+
             if (result.state === 'X') {
                 notifyError({
                     type:     'Fallo envío masivo documento al PRO',
@@ -878,14 +1054,18 @@ const sendAllDocsPerCompany = async (company, docus, options = {}) => {
                 } catch(e) {}
             }
 
-            if (isIntendedForAnulation) {
+            const isGatewayErr = isGatewayFailure(result);
+
+            if (isGatewayErr) {
+                result.state = 'Y'; // Guardado en PRO mas falló envío a SUNAT por Bad Gateway / Timeout
+            } else if (isIntendedForAnulation) {
                 result.state = 'P';
                 result.original_intention = null; // Limpiar la memoria una vez que tuvo éxito
             } else {
                 result.state = 'E';
             }
 
-            if (result.data.state_type_description == 'Rechazado') {
+            if (result.data?.state_type_description == 'Rechazado') {
                 result.state = 'R';
                 num_rechazados += 1;
             }
@@ -897,7 +1077,9 @@ const sendAllDocsPerCompany = async (company, docus, options = {}) => {
             const doc = await update_document(docu.id_document, company.tenant, result)
             if (!doc)
                 num_error += 1;
-            num_aceptados += 1;
+            if (result.state === 'E') {
+                num_aceptados += 1;
+            }
         }
     }
 
@@ -1265,8 +1447,11 @@ const verifyingExternalIds = async (tenant, api) => {
                         state = 'R'
                         num_rechazados += 1
                         break;
+                    case '01': //registrado en PRO mas no en SUNAT
+                        state = 'Y'
+                        break;
                     default:
-                        state = ''
+                        state = element.state_type_id === '05' ? 'E' : 'Y';
                         break;
                 }
                 let response_send = {
@@ -1396,4 +1581,6 @@ module.exports = {
     processDispatchStateE,
     consultAllAnulateDocsAllCompanies,
     verifyErrorDocsAllCompanies,
+    isGatewayFailure,
+    recoverExistingDocumentFromPro,
 };
