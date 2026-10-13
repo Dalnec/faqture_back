@@ -15,3 +15,6 @@ jest.config.js
 
 # Reportes del CLI
 faqture_cli/reports/
+
+# Scripts temporales de prueba
+scratch/

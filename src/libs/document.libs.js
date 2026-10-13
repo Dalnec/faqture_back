@@ -183,10 +183,22 @@ const get_docs_month_filter = async (tenant, filters) => {
 
 const update_document = async (id, tenant, data) => {
     try {
-        if (!id) { return false; }
+        if (!id || !tenant || !/^[a-zA-Z0-9_]+$/.test(tenant)) { return false; }
         const now = new Date()
-        const datos = JSON.stringify(data, null, 4)
-        const r = await pool.query(`UPDATE ${tenant}.document SET states=$1, response_send=$2, modified=$3 WHERE id_document=$4`, [data.state, JSON.stringify(datos, null, 4), now, id]);
+        const datos = typeof data === 'string' ? data : JSON.stringify(data)
+        const externalId = data.external_id || (data.data && data.data.external_id) || null;
+
+        let query;
+        let params;
+        if (externalId) {
+            query = `UPDATE ${tenant}.document SET states=$1, response_send=$2, modified=$3, external_id=COALESCE($4, external_id), verified=true WHERE id_document=$5`;
+            params = [data.state, datos, now, externalId, id];
+        } else {
+            query = `UPDATE ${tenant}.document SET states=$1, response_send=$2, modified=$3, verified=true WHERE id_document=$4`;
+            params = [data.state, datos, now, id];
+        }
+
+        const r = await pool.query(query, params);
         if (!r.rowCount) { return false; }
 
         if (data.state === 'R') {
@@ -235,14 +247,24 @@ const update_document_state = async (id, tenant, data) => {
 
 const update_returning_document = async (id, tenant, data) => {
     try {
-        if (!id) { return false; }
+        if (!id || !tenant || !/^[a-zA-Z0-9_]+$/.test(tenant)) { return false; }
         const now = new Date()
-        const datos = JSON.stringify(data, null, 4)
-        const r = await pool.query(
-            `UPDATE ${tenant}.document SET states=$1, response_send=$2, modified=$3 WHERE id_document=$4
-            RETURNING id_document, json_format, response_send, response_anulate, states, type, external_id`,
-            [data.state, JSON.stringify(datos, null, 4), now, id]
-        );
+        const datos = typeof data === 'string' ? data : JSON.stringify(data)
+        const externalId = data.external_id || (data.data && data.data.external_id) || null;
+
+        let query;
+        let params;
+        if (externalId) {
+            query = `UPDATE ${tenant}.document SET states=$1, response_send=$2, modified=$3, external_id=COALESCE($4, external_id), verified=true WHERE id_document=$5
+            RETURNING id_document, json_format, response_send, response_anulate, states, type, external_id`;
+            params = [data.state, datos, now, externalId, id];
+        } else {
+            query = `UPDATE ${tenant}.document SET states=$1, response_send=$2, modified=$3, verified=true WHERE id_document=$4
+            RETURNING id_document, json_format, response_send, response_anulate, states, type, external_id`;
+            params = [data.state, datos, now, id];
+        }
+
+        const r = await pool.query(query, params);
         if (!r.rowCount) { return false; }
 
         if (data.state === 'R') {
