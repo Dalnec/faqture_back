@@ -3,6 +3,7 @@ const { ApiClient } = require('./api.libs');
 const { selectAllApiCompany } = require('./company.libs');
 const { resetTicketSingleShipment } = require('./connection');
 const { notifyError } = require('./logger');
+const { parseJsonField } = require('./json.libs');
 
 /**
  * Valida formato de fecha ISO YYYY-MM-DD.
@@ -321,10 +322,7 @@ const consultPendingSummaryTicketsForCompany = async (company, effectiveBoletaTy
         // Agrupar por ticket único y fecha
         const ticketsMap = new Map();
         for (const row of rows) {
-            let resp = row.response_send;
-            if (typeof resp === 'string') {
-                try { resp = JSON.parse(resp); } catch (e) {}
-            }
+            const resp = parseJsonField(row.response_send, {});
             const ticket = resp?.summary_ticket || resp?.data?.ticket;
             const emissionDate = row.emission_date;
             if (ticket && emissionDate && !ticketsMap.has(ticket)) {

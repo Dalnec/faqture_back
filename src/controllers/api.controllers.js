@@ -3,6 +3,7 @@ const { selectApiCompanyById, selectAllApiCompany } = require('../libs/company.l
 const { ApiClient } = require('../libs/api.libs');
 const { update_doc_api, checkConnection } = require('../libs/connection');
 const { select_document_by_id, select_all_documents, update_document, update_document_state, update_document_anulate, formatAnulate, sendAllDocsPerCompany, formatAnulatePerCompany, verifyingExternalIds, sendAllAnulateDocsPerCompany, countingDocsState, consultAnulation, select_all_documents_to_consult_void, sendAllConsultVoidPerCompany, sendDoc, recoverExistingDocumentFromPro } = require('../libs/document.libs');
+const { parseJsonField } = require('../libs/json.libs');
 const { getSettingApiRuc } = require('../libs/settings.lib');
 const { ApiRUC } = require('../libs/apiClient.lib');
 const { formatDateForSunat, formatDateISO, translateSystemStatus, getEnvironmentLabel, validateVoucherOnSunat, SUNAT_STATUS_LABELS, translateSunatStatus } = require('../libs/sunatValidation.libs');
@@ -794,10 +795,8 @@ const executeUnifiedValidation = async (company, docu) => {
     if (!company.url || !company.token) {
         let isAnulation = ['A', 'S', 'P', 'C', 'Z'].includes(docu.states);
         if (!isAnulation && docu.response_send) {
-            try {
-                const prev = typeof docu.response_send === 'string' ? JSON.parse(docu.response_send) : docu.response_send;
-                if (prev?.original_intention === 'S') isAnulation = true;
-            } catch(e) {}
+            const prev = parseJsonField(docu.response_send, {});
+            if (prev?.original_intention === 'S') isAnulation = true;
         }
         let nextState = isAnulation ? 'S' : 'N';
         await pool.query(`UPDATE ${company.tenant}.document SET states = $1, external_id = NULL, modified = NOW() WHERE id_document = $2`, [nextState, id_document]);
@@ -977,13 +976,11 @@ const executeUnifiedValidation = async (company, docu) => {
         // sabemos con certeza que existe en el PRO (aunque no figure en la ventana de 3 días del listado).
         let isAlreadyInPro = false;
         if (docu.response_send) {
-            try {
-                const prev = typeof docu.response_send === 'string' ? JSON.parse(docu.response_send) : docu.response_send;
-                const msg = typeof prev?.message === 'string' ? prev.message : (prev?.message ? JSON.stringify(prev.message) : '');
-                if (msg.includes('ya se encuentra registrado')) {
-                    isAlreadyInPro = true;
-                }
-            } catch(e) {}
+            const prev = parseJsonField(docu.response_send, {});
+            const msg = typeof prev?.message === 'string' ? prev.message : (prev?.message ? JSON.stringify(prev.message) : '');
+            if (msg.includes('ya se encuentra registrado')) {
+                isAlreadyInPro = true;
+            }
         }
 
         if (isAlreadyInPro) {
@@ -1012,10 +1009,8 @@ const executeUnifiedValidation = async (company, docu) => {
 
         let isAnulation = ['A', 'S', 'P', 'C', 'Z'].includes(docu.states);
         if (!isAnulation && docu.response_send) {
-            try {
-                const prev = typeof docu.response_send === 'string' ? JSON.parse(docu.response_send) : docu.response_send;
-                if (prev?.original_intention === 'S') isAnulation = true;
-            } catch(e) {}
+            const prev = parseJsonField(docu.response_send, {});
+            if (prev?.original_intention === 'S') isAnulation = true;
         }
         const targetState = isAnulation ? 'S' : 'N';
         if (targetState === 'N') {
