@@ -330,8 +330,8 @@ const formatAnulate = async (id, tenant, company = null) => {
             throw new Error(`Operación denegada: El comprobante no se encuentra declarado en SUNAT (Estado actual: ${docState || 'Ninguno'}).`);
         }
 
-        const doc = JSON.parse(r.rows[0].json_format);
-        const res = JSON.parse(r.rows[0].response_send);
+        const doc = typeof r.rows[0].json_format === 'string' ? JSON.parse(r.rows[0].json_format) : (r.rows[0].json_format || {});
+        const res = typeof r.rows[0].response_send === 'string' ? JSON.parse(r.rows[0].response_send) : (r.rows[0].response_send || {});
 
         let fechaLimpia = doc.fecha_de_emision || '';
         if (fechaLimpia.length > 10) {
@@ -340,13 +340,18 @@ const formatAnulate = async (id, tenant, company = null) => {
 
         const useDMY = isPseInstance(company?.url) && isVoidedDocument(r.rows[0].type);
 
+        const extId = res?.data?.external_id || res?.external_id || r.rows[0]?.external_id;
+        if (!extId) {
+            throw new Error('No se encontró el external_id del comprobante para anular.');
+        }
+
         const format = {
             id_document: r.rows[0].id_document,
             fecha_de_emision_de_documentos: useDMY ? toDMY(fechaLimpia) : fechaLimpia,
             ...((r.rows[0].type == '03') && { codigo_tipo_proceso: '3' }),// codigo_tipo_proceso: '3',
             documentos: [
                 {
-                    external_id: res.data.external_id,
+                    external_id: extId,
                     motivo_anulacion: 'Error en documento'
                 }
             ]
@@ -420,7 +425,12 @@ const formatAnulatePerCompany = async (tenant, company = null, docTypes = null) 
         let listformat = [];
 
         for (let doc of docs) {
-            let docu = JSON.parse(doc.json_format);
+            let docu;
+            try {
+                docu = typeof doc.json_format === 'string' ? JSON.parse(doc.json_format) : (doc.json_format || {});
+            } catch (e) {
+                docu = doc.json_format || {};
+            }
 
             // Validar si response_send es null o vacío
             if (!doc.response_send) {
@@ -430,14 +440,15 @@ const formatAnulatePerCompany = async (tenant, company = null, docTypes = null) 
 
             let res;
             try {
-                res = JSON.parse(doc.response_send);
+                res = typeof doc.response_send === 'string' ? JSON.parse(doc.response_send) : doc.response_send;
             } catch (parseError) {
                 console.log('Error al parsear response_send:', parseError);
                 continue;
             }
 
+            const extId = res?.data?.external_id || res?.external_id || doc.external_id;
             // Validar estructura completa antes de acceder a external_id
-            if (!res || !res.data || !res.data.external_id) {
+            if (!extId) {
                 console.log('external_id no encontrado - estructura inválida:', {
                     hasRes: !!res,
                     hasData: !!(res && res.data),
@@ -467,7 +478,7 @@ const formatAnulatePerCompany = async (tenant, company = null, docTypes = null) 
                 ...((doc.type == '03') && { codigo_tipo_proceso: '3' }),
                 documentos: [
                     {
-                        external_id: res.data.external_id,
+                        external_id: extId,
                         motivo_anulacion: 'Error en documento'
                     }
                 ]
@@ -780,7 +791,7 @@ const sendDoc = async (company, docu) => {
 
 // API EXTERNA APISUNAT
 const getDocGuiaTransportista = async (company, docu) => {
-    data = JSON.parse(docu.response_send)
+    data = typeof docu.response_send === 'string' ? JSON.parse(docu.response_send) : docu.response_send;
     const apiSunat = new ApiSunat(`${company.external_api.apisunat.url}/documents/${data.documentId}/getById`)
     result = await apiSunat.getDocument();
     return result
@@ -828,12 +839,13 @@ const processDispatchStateN = async (company, docu) => {
 };
 
 const processDispatchStateY = async (company, docu) => {
-    const parsed = JSON.parse(docu.response_send);
-    if (!parsed?.data?.external_id) {
+    const parsed = typeof docu.response_send === 'string' ? JSON.parse(docu.response_send) : (docu.response_send || {});
+    const extId = parsed?.data?.external_id || parsed?.external_id || docu.external_id;
+    if (!extId) {
         throw new Error("External ID no encontrado");
     }
     parsed.id_document = docu.id_document;
-    const { result, doc } = await sendDispatch(company, parsed);
+    const { result, doc } = await sendDispatch(company, { ...parsed, data: { ...(parsed.data || {}), external_id: extId } });
     if (!result.success) {
         throw new Error(`Error al enviar Guia a SUNAT: ${typeof result.message === 'string' ? result.message : JSON.stringify(result.message)}`);
     }
@@ -842,12 +854,13 @@ const processDispatchStateY = async (company, docu) => {
 };
 
 const processDispatchStateE = async (company, doc) => {
-    const parsed = JSON.parse(doc.response_send);
-    if (!parsed?.data?.external_id) {
+    const parsed = typeof doc.response_send === 'string' ? JSON.parse(doc.response_send) : (doc.response_send || {});
+    const extId = parsed?.data?.external_id || parsed?.external_id || doc.external_id;
+    if (!extId) {
         throw new Error("External ID no encontrado");
     }
     parsed.id_document = doc.id_document;
-    return await checkDispatchStatusTicket(company, parsed);
+    return await checkDispatchStatusTicket(company, { ...parsed, data: { ...(parsed.data || {}), external_id: extId } });
 };
 
 const validarMensajeError = (response) => {
