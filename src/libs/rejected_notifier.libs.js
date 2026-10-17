@@ -163,6 +163,37 @@ async function getUnnotifiedRejectedDocuments({ concurrency = 25 } = {}) {
     return pendingNotifications;
 }
 
+/**
+ * Evalúa si la fecha de emisión del comprobante supera la ventana operativa (máximo 3 días calendario).
+ * Alineado estrictamente con report.libs.js (rej_salv vs rej_expired) y getUnnotifiedRejectedDocuments.
+ */
+function isVoucherExpired(dateValue, maxDays = 3) {
+    if (!dateValue) return false;
+    try {
+        let dateStr = '';
+        if (dateValue instanceof Date) {
+            const y = dateValue.getFullYear();
+            const m = String(dateValue.getMonth() + 1).padStart(2, '0');
+            const d = String(dateValue.getDate()).padStart(2, '0');
+            dateStr = `${y}-${m}-${d}`;
+        } else if (typeof dateValue === 'string') {
+            dateStr = dateValue.trim().slice(0, 10);
+        } else {
+            return false;
+        }
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) return false;
+
+        const now = new Date();
+        const cutoff = new Date(now.getFullYear(), now.getMonth(), now.getDate() - maxDays);
+        const [y, m, d] = dateStr.split('-').map(Number);
+        const docDay = new Date(y, m - 1, d);
+
+        return docDay < cutoff;
+    } catch (_) {
+        return false;
+    }
+}
+
 // ============================================================================
 // COLA DE DESPACHO SECUENCIAL CON ESPACIADO DE 1 MINUTO (ANTI-SPAM / PROTECCIÓN)
 // ============================================================================
@@ -198,6 +229,12 @@ class RejectedNotificationQueue {
             (item) => item.tenant === tenant && item.id_document === id_document
         );
         if (alreadyInQueue) return;
+
+        // 3. Filtrar comprobantes vencidos (> 3 días) si la fecha viene en doc
+        if (doc && doc.date && isVoucherExpired(doc.date, 3)) {
+            console.log(`[RejectedQueue] Omitido comprobante ${tenant} (ID: ${id_document}) por fecha vencida (> 3 días, emisión: ${doc.date}). No es salvable.`);
+            return;
+        }
 
         this.queue.push({ tenant, id_document, doc, company, company_number });
         console.log(`[RejectedQueue] Encolado comprobante rechazado para ${tenant} (ID: ${id_document}). Total en cola: ${this.queue.length}`);
@@ -257,6 +294,22 @@ class RejectedNotificationQueue {
             } catch (e) {
                 return;
             }
+        }
+
+        // VALIDACIÓN DE FECHA: Solo notificar comprobantes salvables (<= 3 días de emisión)
+        // Alineado con getUnnotifiedRejectedDocuments y report.libs.js (rej_salv vs rej_expired)
+        if (docData && docData.date && isVoucherExpired(docData.date, 3)) {
+            console.log(`[RejectedNotifier] Omitido comprobante ${item.tenant} ${docData.serie}-${docData.numero} por fecha vencida (> 3 días, emisión: ${docData.date}). No es salvable.`);
+            try {
+                const cleanNumero = Number.isInteger(Number(docData.numero)) ? Number(docData.numero) : null;
+                await pool.query(
+                    `INSERT INTO public.whatsapp_notified_rejected (tenant, id_document, type, serie, numero, phones)
+                     VALUES ($1, $2, $3, $4, $5, 'OMITIDO_VENCIDO')
+                     ON CONFLICT (tenant, id_document) DO NOTHING`,
+                    [item.tenant, docData.id_document, docData.type || null, docData.serie || null, cleanNumero]
+                );
+            } catch (_) {}
+            return;
         }
 
         if (!companyName || !companyRuc) {
@@ -391,5 +444,6 @@ module.exports = {
     getUnnotifiedRejectedDocuments,
     enqueueRejectedDocument,
     notifyPendingRejectedDocuments,
+    isVoucherExpired,
     rejectedQueue
 };
