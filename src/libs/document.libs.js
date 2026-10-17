@@ -538,15 +538,16 @@ const recoverExistingDocumentFromPro = async (company, docu, cachedApiDocs = nul
             dayAfter = new Date(dObj.getTime() + 86400000).toISOString().slice(0, 10);
         }
 
+        let token = company.token;
+        if (company.token_series && company.token_series.length > 0 && serie) {
+            const branch = company.token_series.find(e => Array.isArray(e.series) && e.series.includes(serie));
+            if (branch?.token) token = branch.token;
+        }
+
+        const api = new ApiClient(`${company.url}/api/documents/lists/`, token);
+
         let apidocs = cachedApiDocs;
         if (!apidocs) {
-            let token = company.token;
-            if (company.token_series && company.token_series.length > 0 && serie) {
-                const branch = company.token_series.find(e => Array.isArray(e.series) && e.series.includes(serie));
-                if (branch?.token) token = branch.token;
-            }
-
-            const api = new ApiClient(`${company.url}/api/documents/lists/`, token);
             apidocs = await api.getListDocumentByDate(`${company.url}/api/documents/lists/${dayBefore}/${dayAfter}`);
         }
 
@@ -583,22 +584,63 @@ const recoverExistingDocumentFromPro = async (company, docu, cachedApiDocs = nul
             st = 'P';
         }
 
+        let fullRecord = null;
+        if (match.id) {
+            try {
+                fullRecord = await api.getDocumentRecord(`${company.url}/api/documents/record/${match.id}`);
+            } catch (_) {}
+        }
+
+        const recRoot = fullRecord || {};
+        const recInner = (fullRecord && typeof fullRecord.data === 'object' && fullRecord.data !== null) ? fullRecord.data : {};
+
+        const respData = {
+            number: match.number,
+            filename: match.filename || null,
+            external_id: match.external_id,
+            state_type_id: match.state_type_id,
+            state_type_description: match.state_type_description,
+            ...(match.id ? { id: match.id } : {}),
+            ...recInner
+        };
+
+        const extId = recInner.external_id || recRoot.external_id || match.external_id || docu.external_id;
+
+        const respLinks = recRoot.links || recInner.links || {
+            xml: extId ? `${company.url}/downloads/document/xml/${extId}` : (match.download_xml || null),
+            pdf: recInner.download_pdf || (extId ? `${company.url}/downloads/document/pdf/${extId}` : null),
+            cdr: extId ? `${company.url}/downloads/document/cdr/${extId}` : (match.download_cdr || null)
+        };
+
+        let respResponse = recRoot.response || recInner.response || null;
+        if (!respResponse && recInner.response_message) {
+            const rawMsg = String(recInner.response_message).trim();
+            const matchCode = rawMsg.match(/^(\d+)\s*-\s*(.+)$/s);
+            respResponse = {
+                code: matchCode ? matchCode[1] : (recInner.response_type || 'RECHAZADO'),
+                description: matchCode ? matchCode[2] : rawMsg,
+                notes: []
+            };
+        }
+        if (!respResponse && typeof recInner.sunat_shipping_status === 'object') {
+            respResponse = recInner.sunat_shipping_status;
+        }
+
+        const respDataWs = recRoot.data_ws || recInner.data_ws || (recInner.message_text ? {
+            message_text: recInner.message_text,
+            pdf_a4_filename: recInner.pdf_a4_filename || null,
+            full_filename: recInner.filename ? `${recInner.filename}.pdf` : null,
+            customer_telephone: recInner.customer_telephone || null
+        } : null);
+
         return {
             success: true,
-            data: {
-                number: match.number,
-                filename: match.filename || null,
-                external_id: match.external_id,
-                state_type_id: match.state_type_id,
-                state_type_description: match.state_type_description,
-            },
-            links: {
-                xml: match.download_xml,
-                pdf: match.download_pdf,
-                cdr: match.download_cdr
-            },
+            data: respData,
+            links: respLinks,
+            ...(respResponse ? { response: respResponse } : {}),
+            ...(respDataWs ? { data_ws: respDataWs } : {}),
             state: st,
-            external_id: docu.external_id || match.external_id
+            external_id: extId
         };
     } catch (err) {
         console.error('[recoverExistingDocumentFromPro] Error al consultar PRO:', err.message);

@@ -80,6 +80,23 @@ class ApiClient {
         }
     }
 
+    async getDocumentRecord(urlOrId) {
+        try {
+            const finalUrl = String(urlOrId).startsWith('http')
+                ? urlOrId
+                : `${this.config.url.replace(/\/+$/, '')}/record/${urlOrId}`;
+            const response = await axios({
+                ...this.config,
+                method: 'get',
+                url: finalUrl,
+                timeout: 15000,
+            });
+            return response?.data ?? null;
+        } catch (error) {
+            return null;
+        }
+    }
+
     async getListDocumentByDate(url) {
         try {
             const response = await axios({

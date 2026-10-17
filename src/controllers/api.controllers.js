@@ -589,7 +589,62 @@ const validateProSingle = async (req, res, next) => {
             await update_document_state(id_document, company.tenant, { id: id_document, state: 'A' });
             return res.json({ success: true, message: 'El comprobante figura ANULADO en el PRO. Estado local sincronizado a Anulado (A).' });
         } else if (stateTypeId === '09') {
-            await update_document_state(id_document, company.tenant, { id: id_document, state: 'R' });
+            let recordData = null;
+            if (match.id) {
+                try {
+                    recordData = await api.getDocumentRecord(`${company.url}/api/documents/record/${match.id}`);
+                } catch (errRec) {
+                    console.warn('[validateProSingle] No se pudo obtener record completo de PRO:', errRec.message);
+                }
+            }
+            const recRoot = recordData || {};
+            const recInner = (recordData && typeof recordData.data === 'object' && recordData.data !== null) ? recordData.data : {};
+            const extId = recInner.external_id || recRoot.external_id || match.external_id || docu.external_id;
+
+            const extractedLinks = recRoot.links || recInner.links || {
+                xml: extId ? `${company.url}/downloads/document/xml/${extId}` : (match.download_xml || null),
+                pdf: recInner.download_pdf || (extId ? `${company.url}/downloads/document/pdf/${extId}` : null),
+                cdr: extId ? `${company.url}/downloads/document/cdr/${extId}` : (match.download_cdr || null)
+            };
+
+            let extractedResponse = recRoot.response || recInner.response || null;
+            if (!extractedResponse && recInner.response_message) {
+                const rawMsg = String(recInner.response_message).trim();
+                const matchCode = rawMsg.match(/^(\d+)\s*-\s*(.+)$/s);
+                extractedResponse = {
+                    code: matchCode ? matchCode[1] : (recInner.response_type || 'RECHAZADO'),
+                    description: matchCode ? matchCode[2] : rawMsg,
+                    notes: []
+                };
+            }
+            if (!extractedResponse) {
+                extractedResponse = {
+                    code: match.sunat_shipping_status || 'RECHAZADO',
+                    description: stateDesc,
+                    notes: []
+                };
+            }
+
+            const extractedDataWs = recRoot.data_ws || recInner.data_ws || (recInner.message_text ? {
+                message_text: recInner.message_text,
+                pdf_a4_filename: recInner.pdf_a4_filename || null,
+                full_filename: recInner.filename ? `${recInner.filename}.pdf` : null,
+                customer_telephone: recInner.customer_telephone || null
+            } : null);
+
+            const responsePayload = {
+                success: false,
+                data: {
+                    ...match,
+                    ...recInner
+                },
+                links: extractedLinks,
+                response: extractedResponse,
+                ...(extractedDataWs ? { data_ws: extractedDataWs } : {}),
+                state: 'R',
+                external_id: extId
+            };
+            await update_document(id_document, company.tenant, responsePayload);
             return res.json({ success: true, message: `El comprobante fue RECHAZADO por SUNAT según el PRO: ${stateDesc}. Estado local actualizado a Rechazado (R).` });
         } else if (stateTypeId === '01' || stateTypeId === '03' || stateTypeId === '13') {
             await update_document_state(id_document, company.tenant, { id: id_document, state: 'Y' });
@@ -800,7 +855,62 @@ const executeUnifiedValidation = async (company, docu) => {
                 message: 'PRO: El comprobante figura ANULADO en el PRO. Estado sincronizado a Anulado (A).' 
             };
         } else if (stateTypeId === '09') {
-            await update_document_state(id_document, company.tenant, { id: id_document, state: 'R' });
+            let recordData = null;
+            if (match.id) {
+                try {
+                    recordData = await api.getDocumentRecord(`${company.url}/api/documents/record/${match.id}`);
+                } catch (errRec) {
+                    console.warn('[executeUnifiedValidation] No se pudo obtener record completo de PRO:', errRec.message);
+                }
+            }
+            const recRoot = recordData || {};
+            const recInner = (recordData && typeof recordData.data === 'object' && recordData.data !== null) ? recordData.data : {};
+            const extId = recInner.external_id || recRoot.external_id || match.external_id || docu.external_id;
+
+            const extractedLinks = recRoot.links || recInner.links || {
+                xml: extId ? `${company.url}/downloads/document/xml/${extId}` : (match.download_xml || null),
+                pdf: recInner.download_pdf || (extId ? `${company.url}/downloads/document/pdf/${extId}` : null),
+                cdr: extId ? `${company.url}/downloads/document/cdr/${extId}` : (match.download_cdr || null)
+            };
+
+            let extractedResponse = recRoot.response || recInner.response || null;
+            if (!extractedResponse && recInner.response_message) {
+                const rawMsg = String(recInner.response_message).trim();
+                const matchCode = rawMsg.match(/^(\d+)\s*-\s*(.+)$/s);
+                extractedResponse = {
+                    code: matchCode ? matchCode[1] : (recInner.response_type || 'RECHAZADO'),
+                    description: matchCode ? matchCode[2] : rawMsg,
+                    notes: []
+                };
+            }
+            if (!extractedResponse) {
+                extractedResponse = {
+                    code: match.sunat_shipping_status || 'RECHAZADO',
+                    description: match.state_type_description || 'Rechazado',
+                    notes: []
+                };
+            }
+
+            const extractedDataWs = recRoot.data_ws || recInner.data_ws || (recInner.message_text ? {
+                message_text: recInner.message_text,
+                pdf_a4_filename: recInner.pdf_a4_filename || null,
+                full_filename: recInner.filename ? `${recInner.filename}.pdf` : null,
+                customer_telephone: recInner.customer_telephone || null
+            } : null);
+
+            const responsePayload = {
+                success: false,
+                data: {
+                    ...match,
+                    ...recInner
+                },
+                links: extractedLinks,
+                response: extractedResponse,
+                ...(extractedDataWs ? { data_ws: extractedDataWs } : {}),
+                state: 'R',
+                external_id: extId
+            };
+            await update_document(id_document, company.tenant, responsePayload);
             return { 
                 success: true, 
                 sunat_status: 'NO_ENCONTRADO_DIRECTO',
