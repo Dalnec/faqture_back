@@ -1473,6 +1473,10 @@ const verifyingExternalIds = async (tenant, api) => {
         let date = JSON.parse(docdate.json_format).fecha_de_emision
         const apidocs = await api.getListDocumentByDate(`${url}${date}/${date}`);
 
+        // Guarda de resiliencia: si el PRO no responde (timeout/502/504) apidocs trae { error } sin .data.
+        // Sin esto, `for await (... of apidocs.data)` lanza TypeError y tumba toda la verificación.
+        if (!Array.isArray(apidocs?.data)) continue;
+
         // apidocs.data.forEachAsync(element => {
         for await (let element of apidocs.data) {
             let d = docs.filter((e) => {

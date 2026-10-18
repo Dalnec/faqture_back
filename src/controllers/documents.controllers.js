@@ -601,7 +601,12 @@ const getXML = async (req, res, next) => {
             xml = parseJsonField(doc.response_send, {}).links?.xml
         } else {
             const result = await sendDoc(company, doc)
-            xml = result.response_send.data.links
+            // sendDoc devuelve la respuesta del PRO con { data, links } en la raíz
+            xml = result.links?.xml
+        }
+
+        if (!xml) {
+            return res.status(500).json({ success: false, message: 'No se pudo obtener el enlace del XML.' })
         }
 
         const str_xml = await axios.get(xml
@@ -677,27 +682,16 @@ const getXMLByTenant = async (req, res, next) => {
                 });
             }
 
-            // Validar estructura de response_send
-            if (!response_send.data || !response_send.links) {
-                console.error('Estructura de response_send inválida');
-                console.log('response_send.data:', response_send.data);
-                console.log('response_send.links:', response_send.links);
-
-                return res.status(500).json({
-                    success: false,
-                    message: 'Estructura de respuesta inválida'
-                });
-            }
-
-            if (!response_send.success) {
-                console.log('response_send.success es false, verificando external_ids');
+            // Si la respuesta previa no fue exitosa o no trae data/links (p.ej. estado X/Y por
+            // caída de red del PRO), intentar RECUPERAR desde el PRO antes de responder error.
+            if (!response_send.success || !response_send.data || !response_send.links) {
+                console.log('response_send sin data/links válidos, verificando external_ids');
 
                 const api = new ApiClient(`${company.url}/api/documents/lists/`, company.token);
                 const rpta = await verifyingExternalIds(company.tenant, api);
                 console.log('Resultado de verifyingExternalIds:', rpta);
 
-                // Nota: external_id no está definido en el scope actual
-                // Necesitarías obtenerlo del documento o parámetros
+                // Reconsultar el documento: verifyingExternalIds pudo haber actualizado response_send
                 doc = await select_document_by_serie_number(tenant, serie, number);
 
                 if (!doc || !doc.response_send) {
@@ -708,6 +702,18 @@ const getXMLByTenant = async (req, res, next) => {
                 }
 
                 response_send = parseJsonStrict(doc.response_send);
+            }
+
+            // Revalidar estructura tras el intento de recuperación
+            if (!response_send.data || !response_send.links) {
+                console.error('Estructura de response_send inválida');
+                console.log('response_send.data:', response_send.data);
+                console.log('response_send.links:', response_send.links);
+
+                return res.status(500).json({
+                    success: false,
+                    message: 'Estructura de respuesta inválida'
+                });
             }
 
             filename = response_send.data.filename;
@@ -903,25 +909,16 @@ const getCDRByTenant = async (req, res, next) => {
                 });
             }
 
-            // Validar estructura de response_send
-            if (!response_send.data || !response_send.links) {
-                console.error('Estructura de response_send inválida');
-                console.log('response_send.data:', response_send.data);
-                console.log('response_send.links:', response_send.links);
-
-                return res.status(500).json({
-                    success: false,
-                    message: 'Estructura de respuesta inválida'
-                });
-            }
-
-            if (!response_send.success) {
-                console.log('response_send.success es false, verificando external_ids');
+            // Si la respuesta previa no fue exitosa o no trae data/links (p.ej. estado X/Y por
+            // caída de red del PRO), intentar RECUPERAR desde el PRO antes de responder error.
+            if (!response_send.success || !response_send.data || !response_send.links) {
+                console.log('response_send sin data/links válidos, verificando external_ids');
 
                 const api = new ApiClient(`${company.url}/api/documents/lists/`, company.token);
                 const rpta = await verifyingExternalIds(company.tenant, api);
                 console.log('Resultado de verifyingExternalIds:', rpta);
 
+                // Reconsultar el documento: verifyingExternalIds pudo haber actualizado response_send
                 doc = await select_document_by_serie_number(tenant, serie, number);
 
                 if (!doc || !doc.response_send) {
@@ -932,6 +929,18 @@ const getCDRByTenant = async (req, res, next) => {
                 }
 
                 response_send = parseJsonStrict(doc.response_send);
+            }
+
+            // Revalidar estructura tras el intento de recuperación
+            if (!response_send.data || !response_send.links) {
+                console.error('Estructura de response_send inválida');
+                console.log('response_send.data:', response_send.data);
+                console.log('response_send.links:', response_send.links);
+
+                return res.status(500).json({
+                    success: false,
+                    message: 'Estructura de respuesta inválida'
+                });
             }
 
             filename = response_send.data.filename;
@@ -1098,8 +1107,9 @@ const getXMLByTenant2 = async (req, res) => {
             xmlUrl = response_send.links?.xml;
         } else {
             const result = await sendDoc(company, doc);
-            filename = result.response_send?.data?.data?.filename;
-            xmlUrl = result.response_send?.data?.links;
+            // sendDoc devuelve la respuesta del PRO con { data, links } en la raíz
+            filename = result.data?.filename;
+            xmlUrl = result.links?.xml;
         }
 
         if (!xmlUrl || !filename) {
