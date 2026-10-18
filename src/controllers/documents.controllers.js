@@ -9,6 +9,7 @@ const { sendDoc, get_correlative_number, select_document_by_serie_number, verify
 const { selectApiCompanyById, getCompanyByNumber, getCompanyByTenant } = require('../libs/company.libs');
 const { ApiClient } = require('../libs/api.libs');
 const { listReportDocuments } = require('../libs/connection');
+const { parseJsonStrict, parseJsonField } = require('../libs/json.libs');
 const { ApiZenda } = require('../libs/apiZenda.libs');
 const {
     SUNAT_STATUS_LABELS,
@@ -592,15 +593,20 @@ const getXML = async (req, res, next) => {
         }
         let xml
         if (!!doc.response_send) {
-            if (!JSON.parse(doc.response_send).success) {
+            if (!parseJsonField(doc.response_send, {}).success) {
                 const api = new ApiClient(`${company.url}/api/documents/lists/`, company.token)
                 const rpta = await verifyingExternalIds(company.tenant, api)
                 doc = await select_document_by_serie_number(company.tenant, serie, numero)
             }
-            xml = JSON.parse(doc.response_send).links.xml
+            xml = parseJsonField(doc.response_send, {}).links?.xml
         } else {
             const result = await sendDoc(company, doc)
-            xml = result.response_send.data.links
+            // sendDoc devuelve la respuesta del PRO con { data, links } en la raíz
+            xml = result.links?.xml
+        }
+
+        if (!xml) {
+            return res.status(500).json({ success: false, message: 'No se pudo obtener el enlace del XML.' })
         }
 
         const str_xml = await axios.get(xml
@@ -666,7 +672,7 @@ const getXMLByTenant = async (req, res, next) => {
 
             let response_send;
             try {
-                response_send = JSON.parse(doc.response_send);
+                response_send = parseJsonStrict(doc.response_send);
                 console.log('response_send parseado:', JSON.stringify(response_send, null, 2));
             } catch (parseError) {
                 console.error('Error parseando response_send:', parseError);
@@ -676,27 +682,16 @@ const getXMLByTenant = async (req, res, next) => {
                 });
             }
 
-            // Validar estructura de response_send
-            if (!response_send.data || !response_send.links) {
-                console.error('Estructura de response_send inválida');
-                console.log('response_send.data:', response_send.data);
-                console.log('response_send.links:', response_send.links);
-
-                return res.status(500).json({
-                    success: false,
-                    message: 'Estructura de respuesta inválida'
-                });
-            }
-
-            if (!response_send.success) {
-                console.log('response_send.success es false, verificando external_ids');
+            // Si la respuesta previa no fue exitosa o no trae data/links (p.ej. estado X/Y por
+            // caída de red del PRO), intentar RECUPERAR desde el PRO antes de responder error.
+            if (!response_send.success || !response_send.data || !response_send.links) {
+                console.log('response_send sin data/links válidos, verificando external_ids');
 
                 const api = new ApiClient(`${company.url}/api/documents/lists/`, company.token);
                 const rpta = await verifyingExternalIds(company.tenant, api);
                 console.log('Resultado de verifyingExternalIds:', rpta);
 
-                // Nota: external_id no está definido en el scope actual
-                // Necesitarías obtenerlo del documento o parámetros
+                // Reconsultar el documento: verifyingExternalIds pudo haber actualizado response_send
                 doc = await select_document_by_serie_number(tenant, serie, number);
 
                 if (!doc || !doc.response_send) {
@@ -706,7 +701,19 @@ const getXMLByTenant = async (req, res, next) => {
                     });
                 }
 
-                response_send = JSON.parse(doc.response_send);
+                response_send = parseJsonStrict(doc.response_send);
+            }
+
+            // Revalidar estructura tras el intento de recuperación
+            if (!response_send.data || !response_send.links) {
+                console.error('Estructura de response_send inválida');
+                console.log('response_send.data:', response_send.data);
+                console.log('response_send.links:', response_send.links);
+
+                return res.status(500).json({
+                    success: false,
+                    message: 'Estructura de respuesta inválida'
+                });
             }
 
             filename = response_send.data.filename;
@@ -892,7 +899,7 @@ const getCDRByTenant = async (req, res, next) => {
 
             let response_send;
             try {
-                response_send = JSON.parse(doc.response_send);
+                response_send = parseJsonStrict(doc.response_send);
                 console.log('response_send parseado:', JSON.stringify(response_send, null, 2));
             } catch (parseError) {
                 console.error('Error parseando response_send:', parseError);
@@ -902,25 +909,16 @@ const getCDRByTenant = async (req, res, next) => {
                 });
             }
 
-            // Validar estructura de response_send
-            if (!response_send.data || !response_send.links) {
-                console.error('Estructura de response_send inválida');
-                console.log('response_send.data:', response_send.data);
-                console.log('response_send.links:', response_send.links);
-
-                return res.status(500).json({
-                    success: false,
-                    message: 'Estructura de respuesta inválida'
-                });
-            }
-
-            if (!response_send.success) {
-                console.log('response_send.success es false, verificando external_ids');
+            // Si la respuesta previa no fue exitosa o no trae data/links (p.ej. estado X/Y por
+            // caída de red del PRO), intentar RECUPERAR desde el PRO antes de responder error.
+            if (!response_send.success || !response_send.data || !response_send.links) {
+                console.log('response_send sin data/links válidos, verificando external_ids');
 
                 const api = new ApiClient(`${company.url}/api/documents/lists/`, company.token);
                 const rpta = await verifyingExternalIds(company.tenant, api);
                 console.log('Resultado de verifyingExternalIds:', rpta);
 
+                // Reconsultar el documento: verifyingExternalIds pudo haber actualizado response_send
                 doc = await select_document_by_serie_number(tenant, serie, number);
 
                 if (!doc || !doc.response_send) {
@@ -930,7 +928,19 @@ const getCDRByTenant = async (req, res, next) => {
                     });
                 }
 
-                response_send = JSON.parse(doc.response_send);
+                response_send = parseJsonStrict(doc.response_send);
+            }
+
+            // Revalidar estructura tras el intento de recuperación
+            if (!response_send.data || !response_send.links) {
+                console.error('Estructura de response_send inválida');
+                console.log('response_send.data:', response_send.data);
+                console.log('response_send.links:', response_send.links);
+
+                return res.status(500).json({
+                    success: false,
+                    message: 'Estructura de respuesta inválida'
+                });
             }
 
             filename = response_send.data.filename;
@@ -1085,7 +1095,7 @@ const getXMLByTenant2 = async (req, res) => {
         let xmlUrl, filename;
 
         if (doc.response_send) {
-            const response_send = JSON.parse(doc.response_send);
+            const response_send = parseJsonField(doc.response_send, {});
 
             if (!response_send.success) {
                 const api = new ApiClient(`${company.url}/api/documents/lists/`, company.token);
@@ -1097,8 +1107,9 @@ const getXMLByTenant2 = async (req, res) => {
             xmlUrl = response_send.links?.xml;
         } else {
             const result = await sendDoc(company, doc);
-            filename = result.response_send?.data?.data?.filename;
-            xmlUrl = result.response_send?.data?.links;
+            // sendDoc devuelve la respuesta del PRO con { data, links } en la raíz
+            filename = result.data?.filename;
+            xmlUrl = result.links?.xml;
         }
 
         if (!xmlUrl || !filename) {
@@ -1138,11 +1149,18 @@ const externalIdFormatNotaCredito = async (req, res, next) => {
 
         const docRef = await select_document_by_serie_number(tenant, serie_documento, numero_documento);
         if (!docRef) {
-            res.status(400).json({ success: false, message: error.message })
+            return res.status(400).json({ success: false, message: 'Documento afectado no encontrado' })
+        }
+        // IMPORTANTE: no usar docRef.external_id como fallback; esa columna se inicializa con un nanoid
+        // interno de Faqture y solo se reemplaza por el external_id del PRO tras un envío exitoso.
+        const ref = parseJsonField(docRef.response_send, {});
+        const refExternalId = ref?.data?.external_id || ref?.external_id;
+        if (!refExternalId) {
+            return res.status(400).json({ success: false, message: 'El documento afectado no tiene external_id del facturador (no declarado)' })
         }
         // const newData = setNewValues(req.body)
         req.body.documento_afectado = {
-            external_id: JSON.parse(docRef.response_send).data.external_id,
+            external_id: refExternalId,
             codigo_tipo_documento: codigo_tipo_documento
         }
         const strdocument = JSON.stringify(req.body, null, 4)
@@ -1401,7 +1419,7 @@ const verifyDocumentBySerieNumber = async (req, res, next) => {
 
         let response_send;
         try {
-            response_send = JSON.parse(doc.response_send);
+            response_send = parseJsonStrict(doc.response_send);
         } catch (parseError) {
             notifyError({
                 type: 'Error parseando response_send en verifyDocumentBySerieNumber',
@@ -1431,7 +1449,7 @@ const verifyDocumentBySerieNumber = async (req, res, next) => {
                 }
 
                 try {
-                    response_send = JSON.parse(doc.response_send);
+                    response_send = parseJsonStrict(doc.response_send);
                 } catch (parseError) {
                     return res.status(500).json({
                         success: false,
@@ -1541,10 +1559,10 @@ const verifyDispatchesStatusTicket = async (req, res, next) => {
                 response = await processDispatchStateE(company, doc);
                 break;
             case 'W':
-                response = JSON.parse(doc.response_send);
+                response = parseJsonField(doc.response_send, {});
                 break;
             case 'X':
-                response = JSON.parse(doc.response_send);
+                response = parseJsonField(doc.response_send, {});
                 break;
             default:
                 return res.status(400).json({ success: false, message: "Estado no válido" });

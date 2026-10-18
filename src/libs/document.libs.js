@@ -6,6 +6,7 @@ const { selectAllApiCompany, incrementCronAuthFailure, resetCronAuthFailure } = 
 const { update_doc_api } = require('./connection');
 const { notifyError } = require('./logger');
 const { validateVoucherOnSunat, formatDateForSunat, translateSunatStatus, SUNAT_STATUS_LABELS } = require('./sunatValidation.libs');
+const { parseJsonStrict, parseJsonField } = require('./json.libs');
 // const limit = require('p-limit');
 // const limiter = limit(10);
 
@@ -29,7 +30,7 @@ const isVoidedDocument = (type) => type !== '03';
 const sanitizeGuiaFormat = (docu) => {
     if (!docu || (docu.type !== '09' && docu.type !== '31')) return docu.json_format;
     try {
-        const json = JSON.parse(docu.json_format);
+        const json = parseJsonStrict(docu.json_format);
         if (json.direccion_llegada?.direccion) {
             json.direccion_llegada.direccion = truncateAddress(json.direccion_llegada.direccion);
         }
@@ -286,10 +287,10 @@ const update_returning_document = async (id, tenant, data) => {
 
 const update_document_anulate = async (id, tenant, data) => {
     try {
-        if (!id) { return false; }
+        if (!id || !tenant || !/^[a-zA-Z0-9_]+$/.test(tenant)) { return false; }
         const now = new Date()
-        const datos = JSON.stringify(data, null, 4)
-        const r = await pool.query(`UPDATE ${tenant}.document SET states=$1, response_anulate=$2, modified=$3 WHERE id_document=$4`, [data.state, JSON.stringify(datos, null, 4), now, id]);
+        const datos = typeof data === 'string' ? data : JSON.stringify(data)
+        const r = await pool.query(`UPDATE ${tenant}.document SET states=$1, response_anulate=$2, modified=$3 WHERE id_document=$4`, [data.state, datos, now, id]);
         if (!r.rowCount) { return false; }
 
         return true;
@@ -330,8 +331,8 @@ const formatAnulate = async (id, tenant, company = null) => {
             throw new Error(`Operación denegada: El comprobante no se encuentra declarado en SUNAT (Estado actual: ${docState || 'Ninguno'}).`);
         }
 
-        const doc = JSON.parse(r.rows[0].json_format);
-        const res = JSON.parse(r.rows[0].response_send);
+        const doc = typeof r.rows[0].json_format === 'string' ? JSON.parse(r.rows[0].json_format) : (r.rows[0].json_format || {});
+        const res = parseJsonField(r.rows[0].response_send, {});
 
         let fechaLimpia = doc.fecha_de_emision || '';
         if (fechaLimpia.length > 10) {
@@ -340,13 +341,19 @@ const formatAnulate = async (id, tenant, company = null) => {
 
         const useDMY = isPseInstance(company?.url) && isVoidedDocument(r.rows[0].type);
 
+        // No usar la columna external_id como fallback: nace como nanoid interno de Faqture.
+        const extId = res?.data?.external_id || res?.external_id;
+        if (!extId) {
+            throw new Error('No se encontró el external_id del comprobante para anular.');
+        }
+
         const format = {
             id_document: r.rows[0].id_document,
             fecha_de_emision_de_documentos: useDMY ? toDMY(fechaLimpia) : fechaLimpia,
             ...((r.rows[0].type == '03') && { codigo_tipo_proceso: '3' }),// codigo_tipo_proceso: '3',
             documentos: [
                 {
-                    external_id: res.data.external_id,
+                    external_id: extId,
                     motivo_anulacion: 'Error en documento'
                 }
             ]
@@ -420,7 +427,12 @@ const formatAnulatePerCompany = async (tenant, company = null, docTypes = null) 
         let listformat = [];
 
         for (let doc of docs) {
-            let docu = JSON.parse(doc.json_format);
+            let docu;
+            try {
+                docu = typeof doc.json_format === 'string' ? JSON.parse(doc.json_format) : (doc.json_format || {});
+            } catch (e) {
+                docu = doc.json_format || {};
+            }
 
             // Validar si response_send es null o vacío
             if (!doc.response_send) {
@@ -430,14 +442,16 @@ const formatAnulatePerCompany = async (tenant, company = null, docTypes = null) 
 
             let res;
             try {
-                res = JSON.parse(doc.response_send);
+                res = parseJsonStrict(doc.response_send);
             } catch (parseError) {
                 console.log('Error al parsear response_send:', parseError);
                 continue;
             }
 
+            // No usar doc.external_id como fallback: nace como nanoid interno de Faqture.
+            const extId = res?.data?.external_id || res?.external_id;
             // Validar estructura completa antes de acceder a external_id
-            if (!res || !res.data || !res.data.external_id) {
+            if (!extId) {
                 console.log('external_id no encontrado - estructura inválida:', {
                     hasRes: !!res,
                     hasData: !!(res && res.data),
@@ -467,7 +481,7 @@ const formatAnulatePerCompany = async (tenant, company = null, docTypes = null) 
                 ...((doc.type == '03') && { codigo_tipo_proceso: '3' }),
                 documentos: [
                     {
-                        external_id: res.data.external_id,
+                        external_id: extId,
                         motivo_anulacion: 'Error en documento'
                     }
                 ]
@@ -780,7 +794,7 @@ const sendDoc = async (company, docu) => {
 
 // API EXTERNA APISUNAT
 const getDocGuiaTransportista = async (company, docu) => {
-    data = JSON.parse(docu.response_send)
+    data = parseJsonField(docu.response_send, {});
     const apiSunat = new ApiSunat(`${company.external_api.apisunat.url}/documents/${data.documentId}/getById`)
     result = await apiSunat.getDocument();
     return result
@@ -828,12 +842,13 @@ const processDispatchStateN = async (company, docu) => {
 };
 
 const processDispatchStateY = async (company, docu) => {
-    const parsed = JSON.parse(docu.response_send);
-    if (!parsed?.data?.external_id) {
+    const parsed = parseJsonField(docu.response_send, {});
+    const extId = parsed?.data?.external_id || parsed?.external_id || docu.external_id;
+    if (!extId) {
         throw new Error("External ID no encontrado");
     }
     parsed.id_document = docu.id_document;
-    const { result, doc } = await sendDispatch(company, parsed);
+    const { result, doc } = await sendDispatch(company, { ...parsed, data: { ...(parsed.data || {}), external_id: extId } });
     if (!result.success) {
         throw new Error(`Error al enviar Guia a SUNAT: ${typeof result.message === 'string' ? result.message : JSON.stringify(result.message)}`);
     }
@@ -842,12 +857,13 @@ const processDispatchStateY = async (company, docu) => {
 };
 
 const processDispatchStateE = async (company, doc) => {
-    const parsed = JSON.parse(doc.response_send);
-    if (!parsed?.data?.external_id) {
+    const parsed = parseJsonField(doc.response_send, {});
+    const extId = parsed?.data?.external_id || parsed?.external_id || doc.external_id;
+    if (!extId) {
         throw new Error("External ID no encontrado");
     }
     parsed.id_document = doc.id_document;
-    return await checkDispatchStatusTicket(company, parsed);
+    return await checkDispatchStatusTicket(company, { ...parsed, data: { ...(parsed.data || {}), external_id: extId } });
 };
 
 const validarMensajeError = (response) => {
@@ -973,13 +989,7 @@ const sendAllDocsPerCompany = async (company, docus, options = {}) => {
         }
 
         if (docu.states !== 'M' && docu.states !== 'N' && docu.response_send) {
-            let parsedRes = null;
-            try {
-                parsedRes = typeof docu.response_send === 'string' ? JSON.parse(docu.response_send) : docu.response_send;
-                if (typeof parsedRes === 'string') {
-                    try { parsedRes = JSON.parse(parsedRes); } catch (e) {}
-                }
-            } catch (e) {}
+            const parsedRes = parseJsonField(docu.response_send, null);
             if (parsedRes && validarMensajeError(parsedRes) === false) {
                 num_error += 1;
                 continue;
@@ -1038,8 +1048,8 @@ const sendAllDocsPerCompany = async (company, docus, options = {}) => {
                 result.original_intention = 'S'; // Recordar que la intención original era anularlo
             } else if (docu.response_send) {
                 try {
-                    const prevRes = JSON.parse(docu.response_send);
-                    if (prevRes.original_intention === 'S') {
+                    const prevRes = parseJsonStrict(docu.response_send);
+                    if (prevRes?.original_intention === 'S') {
                         result.original_intention = 'S';
                     }
                 } catch(e) {}
@@ -1089,8 +1099,8 @@ const sendAllDocsPerCompany = async (company, docus, options = {}) => {
             let isIntendedForAnulation = (docu.states === 'S');
             if (!isIntendedForAnulation && docu.response_send) {
                 try {
-                    const prevRes = JSON.parse(docu.response_send);
-                    if (prevRes.original_intention === 'S') {
+                    const prevRes = parseJsonStrict(docu.response_send);
+                    if (prevRes?.original_intention === 'S') {
                         isIntendedForAnulation = true;
                     }
                 } catch(e) {}
@@ -1130,15 +1140,13 @@ const sendAllDocsPerCompany = async (company, docus, options = {}) => {
 
 const consultAnulation = async (format, company) => {
     let api;
-    if (typeof format == 'string') {
-        format = JSON.parse(format)
-    }
-    if (format.type == '03') {
+    const parsed = parseJsonField(format, {});
+    if (parsed?.type == '03') {
         api = new ApiClient(`${company.url}/api/summaries/status`, company.token)
     } else {
         api = new ApiClient(`${company.url}/api/voided/status`, company.token)
     }
-    let res = await api.sendDocument(format.data)
+    let res = await api.sendDocument(parsed?.data || parsed)
     return res
 }
 
@@ -1464,6 +1472,10 @@ const verifyingExternalIds = async (tenant, api) => {
         let state_actual = docdate.states;
         let date = JSON.parse(docdate.json_format).fecha_de_emision
         const apidocs = await api.getListDocumentByDate(`${url}${date}/${date}`);
+
+        // Guarda de resiliencia: si el PRO no responde (timeout/502/504) apidocs trae { error } sin .data.
+        // Sin esto, `for await (... of apidocs.data)` lanza TypeError y tumba toda la verificación.
+        if (!Array.isArray(apidocs?.data)) continue;
 
         // apidocs.data.forEachAsync(element => {
         for await (let element of apidocs.data) {

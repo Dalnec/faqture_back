@@ -1,4 +1,5 @@
 const { select_document_by_external_id, select_document_by_serie_number } = require("../libs/document.libs")
+const { parseJsonStrict } = require("../libs/json.libs")
 
 const verifyDocWsp = async (req, res, next) => {
     try {
@@ -10,9 +11,9 @@ const verifyDocWsp = async (req, res, next) => {
             })
         }
         if (doc.states == 'E' && doc.response_send) {
-            const response_send = JSON.parse(doc.response_send);
-            req.links = response_send.links
-            req.filename = response_send.data.filename
+            const response_send = parseJsonStrict(doc.response_send);
+            req.links = response_send?.links
+            req.filename = response_send?.data?.filename
             return next()
         }
         return res.status(403).send({ success: false, message: `Estado del Comprobante es ${doc.states}`, });
@@ -33,10 +34,10 @@ const verifyNumSerieWsp = async (req, res, next) => {
             })
         }
         if (doc.states == 'E' && doc.response_send) {
-            const response_send = JSON.parse(doc.response_send);
-            const sale = JSON.parse(doc.json_format);
-            req.body.links = response_send.links
-            req.body.filename = response_send.data.filename
+            const response_send = parseJsonStrict(doc.response_send);
+            const sale = parseJsonStrict(doc.json_format);
+            req.body.links = response_send?.links
+            req.body.filename = response_send?.data?.filename
             req.body.serie = `${sale.serie_documento}-${sale.numero_documento}`
             req.body.date = `${sale.fecha_de_emision}`
             req.body.number = sale.datos_del_cliente_o_receptor.numero_documento
