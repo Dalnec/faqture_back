@@ -113,9 +113,9 @@ const getPendingBoletaDates = async (tenant, effectiveBoletaTypes, maxDaysBack =
         const query = `
             SELECT DISTINCT TO_CHAR(date::DATE, 'YYYY-MM-DD') AS emission_date
             FROM ${tenant}.document
-            WHERE states IN ('N', 'Y', 'S', 'X', 'M')
-              AND states NOT IN ('A', 'P', 'C', 'R')
+            WHERE states = 'Y'
               AND ${typeClause}
+              AND response_send IS NOT NULL
               AND date IS NOT NULL
               AND date >= (CURRENT_DATE - INTERVAL '${parseInt(maxDaysBack, 10)} days')
             ORDER BY emission_date ASC
@@ -178,6 +178,7 @@ const consultSummaryTicket = async (company, ticket) => {
 /**
  * Actualiza en Faqture las boletas y notas de una fecha dada a estado 'E' (Aceptado)
  * cuando el resumen diario ha sido aprobado por SUNAT.
+ * Solo afecta comprobantes que estaban esperando ticket ('Y') y que fueron enviados al PRO.
  */
 const updateBoletasAcceptedForDate = async (tenant, date, effectiveBoletaTypes, summaryResult = null) => {
     try {
@@ -201,9 +202,8 @@ const updateBoletasAcceptedForDate = async (tenant, date, effectiveBoletaTypes, 
                 response_send = COALESCE(response_send, $1::jsonb)
             WHERE TO_CHAR(date::DATE, 'YYYY-MM-DD') = $2
               AND ${typeClause}
-              AND external_id IS NOT NULL
-              AND states IN ('N', 'Y', 'S', 'X', 'M')
-              AND states NOT IN ('A', 'P', 'C')
+              AND states = 'Y'
+              AND response_send IS NOT NULL
             RETURNING id_document;
         `;
         const { rowCount } = await pool.query(updateQuery, [responseSendJson, date]);
@@ -217,6 +217,7 @@ const updateBoletasAcceptedForDate = async (tenant, date, effectiveBoletaTypes, 
 /**
  * Actualiza temporalmente comprobantes a estado 'Y' y guarda el ticket cuando
  * el resumen diario queda en proceso en SUNAT (código 98 o pendiente).
+ * NUNCA afecta comprobantes en 'N' (no enviados), 'X' (error de envío), 'P'/'C' (anulación) ni 'E' (ya enviados).
  */
 const updateBoletasPendingTicketForDate = async (tenant, date, effectiveBoletaTypes, ticket) => {
     try {
@@ -239,9 +240,8 @@ const updateBoletasPendingTicketForDate = async (tenant, date, effectiveBoletaTy
                 response_send = $1
             WHERE TO_CHAR(date::DATE, 'YYYY-MM-DD') = $2
               AND ${typeClause}
-              AND external_id IS NOT NULL
-              AND states IN ('N', 'S', 'X', 'M')
-              AND states NOT IN ('A', 'P', 'C', 'E')
+              AND states = 'Y'
+              AND response_send IS NOT NULL
             RETURNING id_document;
         `;
         const { rowCount } = await pool.query(updateQuery, [responseSendJson, date]);
@@ -254,6 +254,7 @@ const updateBoletasPendingTicketForDate = async (tenant, date, effectiveBoletaTy
 
 /**
  * Marca como rechazadas ('R') las boletas de una fecha si SUNAT rechazó el resumen diario.
+ * Solo afecta comprobantes que estaban en espera de ticket ('Y').
  */
 const updateBoletasRejectedForDate = async (tenant, date, effectiveBoletaTypes, errorResult = null) => {
     try {
@@ -275,8 +276,8 @@ const updateBoletasRejectedForDate = async (tenant, date, effectiveBoletaTypes, 
                 response_send = $1
             WHERE TO_CHAR(date::DATE, 'YYYY-MM-DD') = $2
               AND ${typeClause}
-              AND states IN ('N', 'Y', 'S', 'X', 'M')
-              AND states NOT IN ('A', 'P', 'C')
+              AND states = 'Y'
+              AND response_send IS NOT NULL
             RETURNING id_document;
         `;
         const { rows, rowCount } = await pool.query(updateQuery, [responseSendJson, date]);

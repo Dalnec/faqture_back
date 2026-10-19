@@ -462,6 +462,9 @@ const validateSunatSingle = async (req, res, next) => {
         const estadoCp = String(sunatResponse?.data?.estadoCp || '');
 
         if (estadoCp === '1' || estadoCp === '3') {
+            if (docu.states === 'P' || docu.states === 'C') {
+                return res.json({ success: true, message: `El comprobante está ACEPTADO en SUNAT y se mantiene en espera de anulación (Estado: ${docu.states}).` });
+            }
             await update_document_state(id_document, company.tenant, { id: id_document, state: 'E' });
             return res.json({ success: true, message: 'El comprobante existe y está ACEPTADO en SUNAT. Estado local sincronizado a Enviado (E).' });
         } else if (estadoCp === '2') {
@@ -470,6 +473,8 @@ const validateSunatSingle = async (req, res, next) => {
         } else if (estadoCp === '4') {
             await update_document_state(id_document, company.tenant, { id: id_document, state: 'R' });
             return res.json({ success: true, message: 'El comprobante fue RECHAZADO por SUNAT. Estado local actualizado a Rechazado (R).' });
+        } else if (['P', 'C'].includes(docu.states)) {
+            return res.json({ success: true, message: `No encontrado en SUNAT. El comprobante se mantiene en ${docu.states} (espera de anulación); no se modifica su estado.` });
         } else {
             let nextState = 'N';
             let stateMessage = 'Estado actualizado a N (Nuevo) para reenvío.';
@@ -562,6 +567,12 @@ const validateProSingle = async (req, res, next) => {
         });
 
         if (!match) {
+            if (['P', 'C'].includes(docu.states)) {
+                return res.json({
+                    success: false,
+                    message: `El comprobante NO EXISTE en el sistema PRO. Se mantiene en ${docu.states} (espera de anulación); no se modifica su estado.`
+                });
+            }
             const isAnulation = ['A', 'S', 'P', 'C', 'Z'].includes(docu.states);
             const targetState = isAnulation ? 'S' : 'N';
             await update_document_state(id_document, company.tenant, { id: id_document, state: targetState });
@@ -577,9 +588,15 @@ const validateProSingle = async (req, res, next) => {
         if (stateTypeId === '05') {
             const hasCdr = match.has_cdr === true || (match.has_cdr !== false && !!match.download_cdr);
             if (hasCdr) {
+                if (docu.states === 'P' || docu.states === 'C') {
+                    return res.json({ success: true, message: `El comprobante está ACEPTADO en el PRO y se mantiene en espera de anulación (Estado: ${docu.states}).` });
+                }
                 await update_document_state(id_document, company.tenant, { id: id_document, state: 'E' });
                 return res.json({ success: true, message: 'El comprobante existe y está ACEPTADO por SUNAT en el PRO (con CDR). Estado local sincronizado a Enviado (E).' });
             } else {
+                if (['P', 'C'].includes(docu.states)) {
+                    return res.json({ success: true, message: `El comprobante está en el PRO pero PENDIENTE de CDR/envío a SUNAT. Se mantiene en ${docu.states} (espera de anulación).` });
+                }
                 await update_document_state(id_document, company.tenant, { id: id_document, state: 'Y' });
                 return res.json({ 
                     success: true, 
@@ -648,6 +665,9 @@ const validateProSingle = async (req, res, next) => {
             await update_document(id_document, company.tenant, responsePayload);
             return res.json({ success: true, message: `El comprobante fue RECHAZADO por SUNAT según el PRO: ${stateDesc}. Estado local actualizado a Rechazado (R).` });
         } else if (stateTypeId === '01' || stateTypeId === '03' || stateTypeId === '13') {
+            if (['P', 'C'].includes(docu.states)) {
+                return res.json({ success: true, message: `El comprobante está REGISTRADO en el PRO (${stateDesc}) pero PENDIENTE de envío a SUNAT. Se mantiene en ${docu.states} (espera de anulación).` });
+            }
             await update_document_state(id_document, company.tenant, { id: id_document, state: 'Y' });
             return res.json({ 
                 success: true, 
@@ -766,6 +786,14 @@ const executeUnifiedValidation = async (company, docu) => {
     const estadoCp = String(sunatResponse?.data?.estadoCp || '');
 
     if (estadoCp === '1' || estadoCp === '3') {
+        if (docu.states === 'P' || docu.states === 'C') {
+            return { 
+                success: true, 
+                sunat_status: 'ACEPTADO',
+                final_state: docu.states,
+                message: `SUNAT: El comprobante está ACEPTADO en SUNAT y se mantiene en espera de anulación (Estado: ${docu.states}).` 
+            };
+        }
         await update_document_state(id_document, company.tenant, { id: id_document, state: 'E' });
         return { 
             success: true, 
@@ -793,6 +821,15 @@ const executeUnifiedValidation = async (company, docu) => {
 
     // PASO 2: SUNAT responde No Encontrado (0) o Error de Red. Verificar en PRO.
     if (!company.url || !company.token) {
+        if (['P', 'C'].includes(docu.states)) {
+            return {
+                success: false,
+                sunat_status: sunatNetworkError ? 'ERROR_RED' : 'NO_ENCONTRADO',
+                pro_status: 'SIN_CONFIGURACION_PRO',
+                final_state: docu.states,
+                message: `No se pudo verificar en el PRO porque la empresa no tiene URL/Token configurados. El comprobante se mantiene en ${docu.states} (espera de anulación).`
+            };
+        }
         let isAnulation = ['A', 'S', 'P', 'C', 'Z'].includes(docu.states);
         if (!isAnulation && docu.response_send) {
             const prev = parseJsonField(docu.response_send, {});
@@ -836,6 +873,15 @@ const executeUnifiedValidation = async (company, docu) => {
         const hasCdr = match.has_cdr === true || (match.has_cdr !== false && !!match.download_cdr);
 
         if (stateTypeId === '05' && hasCdr) {
+            if (docu.states === 'P' || docu.states === 'C') {
+                return { 
+                    success: true, 
+                    sunat_status: 'NO_ENCONTRADO_DIRECTO',
+                    pro_status: 'ACEPTADO',
+                    final_state: docu.states,
+                    message: `PRO: El comprobante figura ACEPTADO en el PRO y se mantiene en espera de anulación (Estado: ${docu.states}).` 
+                };
+            }
             await update_document_state(id_document, company.tenant, { id: id_document, state: 'E' });
             return { 
                 success: true, 
@@ -920,6 +966,15 @@ const executeUnifiedValidation = async (company, docu) => {
         }
 
         if (sunatNetworkError) {
+            if (['P', 'C'].includes(docu.states)) {
+                return { 
+                    success: true, 
+                    sunat_status: 'ERROR_RED',
+                    pro_status: 'REGISTRADO',
+                    final_state: docu.states,
+                    message: `No se pudo verificar en SUNAT por error de red. El comprobante se mantiene en ${docu.states} (espera de anulación).` 
+                };
+            }
             await update_document_state(id_document, company.tenant, { id: id_document, state: 'Y' });
             return { 
                 success: true, 
@@ -938,6 +993,15 @@ const executeUnifiedValidation = async (company, docu) => {
         let limitDays = (docu.type === '01' || serieClean.toUpperCase().startsWith('F')) ? 3 : 30;
 
         if (diffDays > limitDays) {
+            if (['P', 'C'].includes(docu.states)) {
+                return { 
+                    success: true, 
+                    sunat_status: 'NO_ENCONTRADO',
+                    pro_status: 'REGISTRADO_PLAZO_VENCIDO',
+                    final_state: docu.states,
+                    message: `El comprobante está en el PRO pero superó el plazo máximo de envío a SUNAT (${limitDays} días). Se mantiene en ${docu.states} (espera de anulación).` 
+                };
+            }
             await update_document_state(id_document, company.tenant, { id: id_document, state: 'Y' });
             return { 
                 success: true, 
@@ -952,6 +1016,15 @@ const executeUnifiedValidation = async (company, docu) => {
 
         if (sendResult.state === 'E' || sendResult.state === 'P' || sendResult.success || (typeof sendResult.message === 'string' && sendResult.message.includes('ya se encuentra registrado'))) {
             const finalSt = sendResult.state || 'E';
+            if (['P', 'C'].includes(docu.states) && finalSt !== 'A') {
+                return { 
+                    success: true, 
+                    sunat_status: 'DECLARADO',
+                    pro_status: 'ACEPTADO',
+                    final_state: docu.states,
+                    message: `Comprobante declarado en SUNAT. Se mantiene en ${docu.states} (espera de anulación).` 
+                };
+            }
             await update_document_state(id_document, company.tenant, { id: id_document, state: finalSt });
             return { 
                 success: true, 
@@ -961,8 +1034,17 @@ const executeUnifiedValidation = async (company, docu) => {
                 message: `REGULARIZADO: Comprobante forzado y declarado a SUNAT exitosamente (Estado: ${finalSt}).` 
             };
         } else {
-            await update_document_state(id_document, company.tenant, { id: id_document, state: 'Y' });
             const errMsg = typeof sendResult.message === 'string' ? sendResult.message : JSON.stringify(sendResult.message);
+            if (['P', 'C'].includes(docu.states)) {
+                return { 
+                    success: false, 
+                    sunat_status: 'NO_ENCONTRADO',
+                    pro_status: 'PENDIENTE',
+                    final_state: docu.states,
+                    message: `Comprobante registrado en PRO pero falló al declarar a SUNAT: ${errMsg}. Se mantiene en ${docu.states} (espera de anulación).` 
+                };
+            }
+            await update_document_state(id_document, company.tenant, { id: id_document, state: 'Y' });
             return { 
                 success: false, 
                 sunat_status: 'NO_ENCONTRADO',
@@ -987,6 +1069,15 @@ const executeUnifiedValidation = async (company, docu) => {
             const sendResult = await sendDoc(company, docu);
             if (sendResult.state === 'E' || sendResult.state === 'P' || sendResult.success || (typeof sendResult.message === 'string' && sendResult.message.includes('ya se encuentra registrado'))) {
                 const finalSt = sendResult.state || 'E';
+                if (['P', 'C'].includes(docu.states) && finalSt !== 'A') {
+                    return {
+                        success: true,
+                        sunat_status: 'DECLARADO',
+                        pro_status: 'REGISTRADO_PREVIAMENTE',
+                        final_state: docu.states,
+                        message: `PRO: El comprobante ya se encontraba registrado. Se mantiene en ${docu.states} (espera de anulación).`
+                    };
+                }
                 await update_document_state(id_document, company.tenant, { id: id_document, state: finalSt });
                 return {
                     success: true,
@@ -996,6 +1087,15 @@ const executeUnifiedValidation = async (company, docu) => {
                     message: `PRO: El comprobante ya se encontraba registrado en el PRO. Sincronizado a ${finalSt}.`
                 };
             } else {
+                if (['P', 'C'].includes(docu.states)) {
+                    return {
+                        success: true,
+                        sunat_status: 'NO_ENCONTRADO',
+                        pro_status: 'REGISTRADO_PREVIAMENTE',
+                        final_state: docu.states,
+                        message: `El comprobante ya existe en el PRO pero no pudo declararse a SUNAT. Se mantiene en ${docu.states} (espera de anulación).`
+                    };
+                }
                 await update_document_state(id_document, company.tenant, { id: id_document, state: 'Y' });
                 return {
                     success: true,
@@ -1005,6 +1105,16 @@ const executeUnifiedValidation = async (company, docu) => {
                     message: `El comprobante ya existe en el PRO pero no pudo declararse a SUNAT. Queda en estado Y.`
                 };
             }
+        }
+
+        if (['P', 'C'].includes(docu.states)) {
+            return {
+                success: false,
+                sunat_status: 'NO_ENCONTRADO',
+                pro_status: 'NO_EXISTE',
+                final_state: docu.states,
+                message: `El comprobante NO EXISTE en SUNAT ni en el PRO. Se mantiene en ${docu.states} (espera de anulación); no se modifica su estado.`
+            };
         }
 
         let isAnulation = ['A', 'S', 'P', 'C', 'Z'].includes(docu.states);
@@ -1063,7 +1173,9 @@ const getCompanyErrorDocuments = async (req, res, next) => {
 
         const tenant = company.tenant;
         const query = `
-            SELECT id_document, cod_sale, serie, numero, type, states, date, amount, external_id 
+            SELECT id_document, cod_sale, serie, numero, type, states, date,
+                   TO_CHAR(date::DATE, 'YYYY-MM-DD') AS emission_date,
+                   amount, customer, customer_number, external_id
             FROM ${tenant}.document 
             WHERE type NOT IN ('80', '09', '31')
               AND (
@@ -1175,6 +1287,548 @@ const repairBadGateways = async (req, res, next) => {
     }
 };
 
+const NC_LIMA_TZ = 'America/Lima';
+const NC_TOTAL_MOTIVES = new Set(['01', '06']);
+const ncInFlight = new Set();
+
+const ncGetLimaParts = (value = new Date()) => {
+    if (value === null || value === '') return null;
+    const date = value instanceof Date ? value : new Date(value);
+    if (Number.isNaN(date.getTime())) return null;
+    return new Intl.DateTimeFormat('en-CA', {
+        timeZone: NC_LIMA_TZ,
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit',
+        hourCycle: 'h23'
+    }).formatToParts(date).reduce((acc, part) => {
+        if (part.type !== 'literal') acc[part.type] = part.value;
+        return acc;
+    }, {});
+};
+
+const ncGetLimaTodayIso = () => {
+    const p = ncGetLimaParts();
+    return `${p.year}-${p.month}-${p.day}`;
+};
+
+const ncGetLimaTimeHms = () => {
+    const p = ncGetLimaParts();
+    return `${p.hour}:${p.minute}:${p.second}`;
+};
+
+const ncToLimaIsoDate = (value) => {
+    if (typeof value === 'string') {
+        if (/^\d{4}-\d{2}-\d{2}$/.test(value)) return value;
+        if (/^\d{4}-\d{2}-\d{2}[ T]/.test(value) && !/(?:z|[+-]\d{2}:?\d{2})$/i.test(value)) {
+            return value.slice(0, 10);
+        }
+    }
+    const p = ncGetLimaParts(value);
+    return p ? `${p.year}-${p.month}-${p.day}` : null;
+};
+
+const ncIsoToUtc = (iso) => {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(String(iso || ''))) return null;
+    const [y, m, d] = iso.split('-').map(Number);
+    const utc = Date.UTC(y, m - 1, d);
+    if (Number.isNaN(utc)) return null;
+    const parsed = new Date(utc);
+    if (parsed.getUTCFullYear() !== y || parsed.getUTCMonth() !== m - 1 || parsed.getUTCDate() !== d) {
+        return null;
+    }
+    return utc;
+};
+
+const ncDaysBetween = (fromIso, toIso) => {
+    const from = ncIsoToUtc(fromIso);
+    const to = ncIsoToUtc(toIso);
+    if (from === null || to === null) return null;
+    return Math.floor((to - from) / 86400000);
+};
+
+const ncParseNumber = (data, fallbackSerie) => {
+    const candidates = [];
+    if (data?.number) candidates.push(String(data.number).trim());
+    if (data?.number_full) candidates.push(String(data.number_full).trim());
+    if (data?.serie_documento && data?.numero_documento) {
+        candidates.push(`${String(data.serie_documento).trim()}-${String(data.numero_documento).trim()}`);
+    }
+    for (const raw of candidates) {
+        const full = raw.match(/^([A-Za-z0-9]{4})-(\d{1,12})$/);
+        if (full) {
+            const numero = Number(full[2]);
+            if (Number.isSafeInteger(numero) && numero > 0) {
+                const serie = full[1].toUpperCase();
+                return { serie, numero, numberFull: `${serie}-${full[2]}` };
+            }
+        }
+        if (/^\d{1,12}$/.test(raw)) {
+            const numero = Number(raw);
+            if (Number.isSafeInteger(numero) && numero > 0) {
+                return { serie: fallbackSerie, numero, numberFull: `${fallbackSerie}-${raw}` };
+            }
+        }
+    }
+    return null;
+};
+
+const createCreditNotesForExpired = async (req, res, next) => {
+    try {
+        const { id_company, id_documents, serie_factura_nc, serie_boleta_nc, fecha_emision_nc, codigo_motivo_nc, descripcion_motivo_nc } = req.body || {};
+
+        if (!id_company) {
+            return res.status(400).json({ success: false, message: 'El id_company es requerido.' });
+        }
+        if (!Array.isArray(id_documents) || id_documents.length === 0) {
+            return res.status(400).json({ success: false, message: 'Debe seleccionar al menos un comprobante para emitir Nota de Crédito.' });
+        }
+        if (id_documents.length > 50) {
+            return res.status(400).json({ success: false, message: 'El máximo permitido es 50 comprobantes por solicitud.' });
+        }
+
+        const company = await selectApiCompanyById(id_company);
+        if (!company || !company.tenant) {
+            return res.status(404).json({ success: false, message: 'Empresa no encontrada.' });
+        }
+        if (!company.url || !company.token) {
+            return res.status(400).json({ success: false, message: 'La empresa no tiene URL o token del PRO configurados.' });
+        }
+
+        const tenant = company.tenant;
+        if (!/^[a-zA-Z0-9_]+$/.test(tenant)) {
+            return res.status(400).json({ success: false, message: 'Tenant inválido.' });
+        }
+
+        const todayIso = ncGetLimaTodayIso();
+        const horaEmision = ncGetLimaTimeHms();
+        const fechaEmision = fecha_emision_nc ? String(fecha_emision_nc).trim() : todayIso;
+
+        if (ncIsoToUtc(fechaEmision) === null) {
+            return res.status(400).json({ success: false, message: 'fecha_emision_nc debe tener formato YYYY-MM-DD.' });
+        }
+        if (fechaEmision > todayIso) {
+            return res.status(400).json({ success: false, message: 'La fecha de emisión de la NC no puede ser futura.' });
+        }
+
+        const motivoDoc = String(codigo_motivo_nc || '01').trim().padStart(2, '0');
+        if (!NC_TOTAL_MOTIVES.has(motivoDoc)) {
+            return res.status(400).json({ success: false, message: 'Motivo no soportado. Use 01 (anulación de la operación) o 06 (devolución total). Los motivos 02, 03 y 07 requieren datos corregidos o devolución por ítem.' });
+        }
+        const motivoDesc = (descripcion_motivo_nc ? String(descripcion_motivo_nc).trim() : 'ANULACION DE LA OPERACION').slice(0, 250);
+
+        const serieFacturaNc = String(serie_factura_nc || 'FC01').trim().toUpperCase();
+        const serieBoletaNc = String(serie_boleta_nc || 'BC01').trim().toUpperCase();
+        if (!/^F[A-Z0-9]{3}$/.test(serieFacturaNc) || !/^B[A-Z0-9]{3}$/.test(serieBoletaNc)) {
+            return res.status(400).json({ success: false, message: 'Las series de NC deben tener 4 caracteres: F### para facturas y B### para boletas.' });
+        }
+
+        const invalidIds = [];
+        const normalizedIds = [];
+        for (const rawId of id_documents) {
+            const parsedId = Number(rawId);
+            if (Number.isInteger(parsedId) && parsedId > 0) normalizedIds.push(parsedId);
+            else invalidIds.push(rawId);
+        }
+        const uniqueIds = [...new Set(normalizedIds)];
+        const results = [];
+        let successCount = 0;
+        let errorCount = 0;
+
+        for (const invalidId of invalidIds) {
+            results.push({ id_document: invalidId, success: false, message: 'ID de comprobante inválido.' });
+            errorCount++;
+        }
+
+        for (let idx = 0; idx < uniqueIds.length; idx++) {
+            const id_doc = uniqueIds[idx];
+            if (idx > 0) await new Promise((resolve) => setTimeout(resolve, 250));
+            const lockKey = `${id_company}:${id_doc}`;
+            if (ncInFlight.has(lockKey)) {
+                results.push({ id_document: id_doc, success: false, message: 'Ya existe una emisión de NC en proceso para este comprobante. Espere a que finalice.' });
+                errorCount++;
+                continue;
+            }
+            ncInFlight.add(lockKey);
+            try {
+                const { rows: docRows } = await pool.query(
+                    `SELECT id_document, cod_sale, type, serie, numero, date,
+                            TO_CHAR(date::DATE, 'YYYY-MM-DD') AS emission_date, amount,
+                            customer_number, customer, json_format, response_send, response_anulate, states, external_id
+                     FROM ${tenant}.document
+                     WHERE id_document = $1`,
+                    [id_doc]
+                );
+
+                if (docRows.length === 0) {
+                    results.push({ id_document: id_doc, document: `ID ${id_doc}`, success: false, message: 'Comprobante no encontrado en la base de datos local.' });
+                    errorCount++;
+                    continue;
+                }
+
+                const doc = docRows[0];
+                const docLabel = `${doc.serie || ''}-${doc.numero || ''}`.trim();
+
+                if (!['01', '03'].includes(String(doc.type))) {
+                    results.push({ id_document: id_doc, document: docLabel, success: false, message: 'Solo se pueden regularizar facturas (01) y boletas (03) con Nota de Crédito.' });
+                    errorCount++;
+                    continue;
+                }
+
+                if (!['P', 'C'].includes(String(doc.states))) {
+                    results.push({ id_document: id_doc, document: docLabel, success: false, message: `El comprobante está en estado ${doc.states}; solo se permite regularizar comprobantes en P o C.` });
+                    errorCount++;
+                    continue;
+                }
+
+                const docIso = doc.emission_date || ncToLimaIsoDate(doc.date);
+                const age = ncDaysBetween(docIso, todayIso);
+                if (docIso === null || age === null) {
+                    results.push({ id_document: id_doc, document: docLabel, success: false, message: 'La fecha del comprobante es inválida.' });
+                    errorCount++;
+                    continue;
+                }
+                if (age <= 7) {
+                    results.push({ id_document: id_doc, document: docLabel, success: false, message: `El comprobante tiene ${age} días; aún está dentro del plazo legal de baja (7 días). Use la anulación ordinaria.` });
+                    errorCount++;
+                    continue;
+                }
+                if (fechaEmision < docIso) {
+                    results.push({ id_document: id_doc, document: docLabel, success: false, message: 'La fecha de la NC no puede ser anterior a la fecha del comprobante original.' });
+                    errorCount++;
+                    continue;
+                }
+
+                const refSend = parseJsonField(doc.response_send, {});
+                const refAnulate = parseJsonField(doc.response_anulate, {});
+                const refExternalId = refSend?.data?.external_id || refSend?.external_id || refAnulate?.data?.external_id || refAnulate?.external_id || doc.external_id || null;
+
+                if (!refExternalId) {
+                    results.push({ id_document: id_doc, document: docLabel, success: false, message: 'El comprobante no tiene external_id registrado del facturador PRO.' });
+                    errorCount++;
+                    continue;
+                }
+
+                let originalJson = parseJsonField(doc.json_format, null);
+                if (typeof originalJson === 'string') {
+                    try { originalJson = JSON.parse(originalJson); } catch (e) {}
+                }
+                if (!originalJson || typeof originalJson !== 'object') {
+                    results.push({ id_document: id_doc, document: docLabel, success: false, message: 'Formato JSON del comprobante original inválido o corrupto.' });
+                    errorCount++;
+                    continue;
+                }
+
+                if (!Array.isArray(originalJson.items) || originalJson.items.length === 0) {
+                    results.push({ id_document: id_doc, document: docLabel, success: false, message: 'El JSON del comprobante original no contiene items; no es posible emitir una NC total.' });
+                    errorCount++;
+                    continue;
+                }
+
+                const existingNc = await pool.query(
+                    `SELECT id_document, states, serie, numero
+                     FROM ${tenant}.document
+                     WHERE type = '07'
+                       AND (json_format->'documento_afectado'->>'external_id' = $1
+                            OR json_format::text LIKE $2)
+                     ORDER BY id_document DESC`,
+                    [refExternalId, `%${refExternalId}%`]
+                );
+
+                const existingNcRows = existingNc.rows;
+                const acceptedNc = existingNcRows.find((nc) => nc.states === 'E');
+                const pendingNc = existingNcRows.find((nc) => ['Y', 'P', 'C'].includes(nc.states));
+                const annulledNc = existingNcRows.find((nc) => nc.states === 'A');
+
+                if (acceptedNc) {
+                    const ncLabel = `${acceptedNc.serie}-${acceptedNc.numero}`;
+                    const updateRes = await pool.query(
+                        `UPDATE ${tenant}.document SET states = 'A', modified = NOW() WHERE id_document = $1 AND states IN ('P', 'C')`,
+                        [id_doc]
+                    );
+                    const marked = updateRes.rowCount > 0;
+                    results.push({
+                        id_document: id_doc,
+                        document: docLabel,
+                        success: true,
+                        nc_number: ncLabel,
+                        nc_state: 'E',
+                        message: marked
+                            ? `Ya existe la NC ${ncLabel} aceptada. Comprobante marcado como ANULADO (A).`
+                            : `Ya existe la NC ${ncLabel} aceptada, pero el comprobante ya no está en P/C; no se modificó.`
+                    });
+                    successCount++;
+                    continue;
+                }
+
+                if (pendingNc) {
+                    const ncLabel = `${pendingNc.serie}-${pendingNc.numero}`;
+                    results.push({ id_document: id_doc, document: docLabel, success: false, nc_number: ncLabel, nc_state: pendingNc.states, message: `Ya existe la NC ${ncLabel} en estado ${pendingNc.states}. No se emite otra; requiere revisión manual.` });
+                    errorCount++;
+                    continue;
+                }
+
+                if (annulledNc) {
+                    const ncLabel = `${annulledNc.serie}-${annulledNc.numero}`;
+                    results.push({ id_document: id_doc, document: docLabel, success: false, nc_number: ncLabel, nc_state: 'A', message: `Ya existe la NC ${ncLabel}, pero está ANULADA (A). El comprobante original no se modifica; requiere revisión manual.` });
+                    errorCount++;
+                    continue;
+                }
+
+                const ncSerie = String(doc.type) === '01' ? serieFacturaNc : serieBoletaNc;
+                let token = company.token;
+                if (Array.isArray(company.token_series)) {
+                    const branch = company.token_series.find(e => Array.isArray(e.series) && e.series.includes(ncSerie));
+                    if (branch?.token) token = branch.token;
+                }
+
+                const originalCustomer = (originalJson.datos_del_cliente_o_receptor && typeof originalJson.datos_del_cliente_o_receptor === 'object')
+                    ? originalJson.datos_del_cliente_o_receptor
+                    : {};
+                const originalTotals = (originalJson.totales && typeof originalJson.totales === 'object')
+                    ? originalJson.totales
+                    : {};
+
+                const ncPayload = {
+                    serie_documento: ncSerie,
+                    numero_documento: '#',
+                    fecha_de_emision: fechaEmision,
+                    hora_de_emision: horaEmision,
+                    codigo_tipo_operacion: originalJson?.codigo_tipo_operacion || '0101',
+                    codigo_tipo_documento: '07',
+                    codigo_tipo_moneda: originalJson?.codigo_tipo_moneda || 'PEN',
+                    fecha_de_vencimiento: fechaEmision,
+                    numero_orden_de_compra: originalJson?.numero_orden_de_compra || '',
+                    datos_del_cliente_o_receptor: {
+                        ...originalCustomer,
+                        codigo_tipo_documento_identidad: originalCustomer.codigo_tipo_documento_identidad || (String(doc.type) === '01' ? '6' : '1'),
+                        numero_documento: originalCustomer.numero_documento || doc.customer_number || '00000000',
+                        apellidos_y_nombres_o_razon_social: originalCustomer.apellidos_y_nombres_o_razon_social || doc.customer || 'CLIENTE VARIOS',
+                        codigo_pais: originalCustomer.codigo_pais || 'PE',
+                        ubigeo: originalCustomer.ubigeo ?? '',
+                        direccion: originalCustomer.direccion || '-'
+                    },
+                    codigo_motivo_documento: motivoDoc,
+                    descripcion_motivo: motivoDesc,
+                    documento_afectado: {
+                        external_id: refExternalId,
+                        codigo_tipo_documento: doc.type
+                    },
+                    totales: {
+                        total_exportacion: 0,
+                        total_operaciones_gravadas: Number(doc.amount) || 0,
+                        total_operaciones_inafectas: 0,
+                        total_operaciones_exoneradas: 0,
+                        total_operaciones_gratuitas: 0,
+                        total_igv: 0,
+                        total_impuestos: 0,
+                        total_valor: Number(doc.amount) || 0,
+                        total_venta: Number(doc.amount) || 0,
+                        ...originalTotals
+                    },
+                    items: originalJson.items
+                };
+
+                const baseUrl = String(company.url).trim().replace(/\/+$/, '');
+                const api = new ApiClient(`${baseUrl}/api/documents`, token);
+                let resPro = await api.sendDocument(ncPayload);
+                const isRateLimit = resPro?.status === 429
+                    || (typeof resPro?.message === 'string' && resPro.message.toLowerCase().includes('too many attempts'));
+                if ((!resPro || !resPro.success) && isRateLimit) {
+                    await new Promise((resolve) => setTimeout(resolve, 2500));
+                    resPro = await api.sendDocument(ncPayload);
+                }
+
+                if (!resPro || !resPro.success) {
+                    let errMsg = 'Error al emitir la Nota de Crédito en el PRO';
+                    if (typeof resPro?.message === 'string') errMsg = resPro.message;
+                    else if (resPro?.message && typeof resPro.message === 'object') {
+                        errMsg = Object.values(resPro.message).flat().join('; ');
+                    }
+                    if (/ya se encuentra registrado/i.test(errMsg)) {
+                        errMsg = `El PRO ya tiene una NC registrada para este comprobante (${errMsg}). Verifique manualmente su serie/número antes de reintentar.`;
+                    }
+                    results.push({ id_document: id_doc, document: docLabel, success: false, message: errMsg });
+                    errorCount++;
+                    continue;
+                }
+
+                const ncData = Array.isArray(resPro.data)
+                    ? (resPro.data[0] || {})
+                    : (resPro.data && typeof resPro.data === 'object' ? resPro.data : resPro);
+                const ncExternalId = ncData.external_id || null;
+                const stateTypeId = String(ncData.state_type_id || '');
+                const ncState = stateTypeId === '05' ? 'E' : (stateTypeId === '09' ? 'R' : (stateTypeId === '11' ? 'A' : 'Y'));
+                const parsedNumber = ncParseNumber(ncData, ncSerie);
+
+                if (!parsedNumber) {
+                    results.push({
+                        id_document: id_doc,
+                        document: docLabel,
+                        success: false,
+                        message: `El PRO emitió la NC (${ncExternalId || 'sin external_id'}) pero no devolvió una serie/número válidos. No se registró localmente ni se marcó el original como A.`
+                    });
+                    errorCount++;
+                    continue;
+                }
+
+                const { serie: genSerie, numero: genNumero, numberFull: ncNumberFull } = parsedNumber;
+                const storedNcPayload = { ...ncPayload, serie_documento: genSerie, numero_documento: String(genNumero) };
+
+                const anulatePayload = {
+                    success: ncState !== 'R',
+                    anulado_por_nc: ncState === 'E',
+                    nc_pending: ncState === 'Y',
+                    nc_state: ncState,
+                    nc_number: ncNumberFull,
+                    nc_serie: genSerie,
+                    nc_numero: genNumero,
+                    nc_external_id: ncExternalId,
+                    message: ncState === 'E'
+                        ? `Anulado mediante Nota de Crédito ${ncNumberFull}`
+                        : ncState === 'Y'
+                            ? `Nota de Crédito ${ncNumberFull} emitida, pendiente de aceptación en SUNAT`
+                            : ncState === 'A'
+                                ? `Nota de Crédito ${ncNumberFull} anulada; el comprobante original se mantiene`
+                                : `Nota de Crédito ${ncNumberFull} rechazada por SUNAT`,
+                    date: new Date().toISOString()
+                };
+
+                const client = await pool.connect();
+                try {
+                    await client.query('BEGIN');
+
+                    const insert = await client.query(
+                        `INSERT INTO ${tenant}.document (
+                            created, modified, date, cod_sale, type, serie, numero,
+                            customer_number, customer, amount, states, json_format,
+                            response_send, id_company, external_id
+                        ) VALUES (
+                            NOW(), NOW(), $1, $2, '07', $3, $4,
+                            $5, $6, $7, $8, $9,
+                            $10, $11, $12
+                        )
+                        ON CONFLICT (serie, numero) DO NOTHING
+                        RETURNING id_document, states`,
+                        [
+                            `${fechaEmision} ${horaEmision}`,
+                            doc.cod_sale || '0',
+                            genSerie,
+                            genNumero,
+                            doc.customer_number || '00000000',
+                            doc.customer || 'CLIENTE',
+                            doc.amount || 0,
+                            ncState,
+                            JSON.stringify(storedNcPayload),
+                            JSON.stringify(resPro),
+                            id_company,
+                            ncExternalId
+                        ]
+                    );
+
+                    let finalNcState = ncState;
+                    if (insert.rowCount === 0) {
+                        const existing = await client.query(
+                            `SELECT states, json_format FROM ${tenant}.document WHERE serie = $1 AND numero = $2 LIMIT 1`,
+                            [genSerie, genNumero]
+                        );
+                        const existingRow = existing.rows[0];
+                        const existingJson = parseJsonField(existingRow?.json_format, {});
+                        const existingAffected = existingJson?.documento_afectado?.external_id || null;
+                        if (!existingAffected || existingAffected !== refExternalId) {
+                            await client.query('ROLLBACK');
+                            results.push({
+                                id_document: id_doc,
+                                document: docLabel,
+                                success: false,
+                                message: `Conflicto: la NC ${genSerie}-${genNumero} ya existe para otro comprobante. No se modificó el original.`
+                            });
+                            errorCount++;
+                            continue;
+                        }
+                        finalNcState = existingRow?.states || 'Y';
+                    }
+
+                    const shouldAnnul = finalNcState === 'E';
+                    const finalAnulatePayload = {
+                        ...anulatePayload,
+                        success: finalNcState !== 'R',
+                        anulado_por_nc: shouldAnnul,
+                        nc_pending: finalNcState === 'Y',
+                        nc_state: finalNcState
+                    };
+
+                    const updateRes = await client.query(
+                        `UPDATE ${tenant}.document
+                         SET states = CASE WHEN $3 THEN 'A' ELSE states END,
+                             response_anulate = $1::jsonb,
+                             modified = NOW()
+                         WHERE id_document = $2 AND states IN ('P', 'C')`,
+                        [JSON.stringify(finalAnulatePayload), id_doc, shouldAnnul]
+                    );
+                    const originalUpdated = updateRes.rowCount > 0;
+
+                    await client.query('COMMIT');
+
+                    const isRejected = finalNcState === 'R';
+                    let resultMessage;
+                    if (shouldAnnul) {
+                        resultMessage = originalUpdated
+                            ? `Nota de Crédito ${ncNumberFull} aceptada. Comprobante original marcado como ANULADO (A).`
+                            : `Nota de Crédito ${ncNumberFull} aceptada, pero el comprobante ya no está en P/C; no se modificó.`;
+                    } else if (isRejected) {
+                        resultMessage = `Nota de Crédito ${ncNumberFull} rechazada por SUNAT. El comprobante original se mantiene en ${doc.states}.`;
+                    } else if (finalNcState === 'A') {
+                        resultMessage = `Nota de Crédito ${ncNumberFull} anulada. El comprobante original se mantiene en ${doc.states}.`;
+                    } else {
+                        resultMessage = `Nota de Crédito ${ncNumberFull} registrada en estado ${finalNcState}. El comprobante original se mantiene en ${doc.states} hasta la aceptación de la NC.${originalUpdated ? '' : ' No se pudo actualizar su response_anulate.'}`;
+                    }
+
+                    results.push({
+                        id_document: id_doc,
+                        document: docLabel,
+                        success: !isRejected,
+                        nc_number: ncNumberFull,
+                        nc_state: finalNcState,
+                        message: resultMessage
+                    });
+                    if (isRejected) errorCount++; else successCount++;
+                } catch (dbErr) {
+                    try { await client.query('ROLLBACK'); } catch (e) {}
+                    dbErr.ncNumber = ncNumberFull;
+                    dbErr.ncExternalId = ncExternalId;
+                    throw dbErr;
+                } finally {
+                    client.release();
+                }
+            } catch (docErr) {
+                console.error(`[createCreditNotesForExpired] Error procesando doc ${id_doc}:`, docErr);
+                const ncInfo = docErr?.ncNumber
+                    ? ` La NC ${docErr.ncNumber} ya fue emitida en el PRO (external_id: ${docErr.ncExternalId || 'N/D'}) y requiere conciliación manual.`
+                    : '';
+                results.push({ id_document: id_doc, success: false, message: `${docErr.message || 'Error inesperado durante la emisión'}${ncInfo}` });
+                errorCount++;
+            } finally {
+                ncInFlight.delete(lockKey);
+            }
+        }
+
+        return res.status(200).json({
+            success: true,
+            total: uniqueIds.length + invalidIds.length,
+            success_count: successCount,
+            error_count: errorCount,
+            results
+        });
+    } catch (error) {
+        console.error('[createCreditNotesForExpired] Error general:', error);
+        return res.status(500).json({ success: false, message: error.message });
+    }
+};
+
 module.exports = {
     sendDocument,
     anulateDocument,
@@ -1193,4 +1847,5 @@ module.exports = {
     executeUnifiedValidation,
     getCompanyErrorDocuments,
     repairBadGateways,
+    createCreditNotesForExpired,
 };
