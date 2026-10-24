@@ -785,10 +785,20 @@ const executeUnifiedValidation = async (company, docu) => {
 
     const estadoCp = String(sunatResponse?.data?.estadoCp || '');
 
+    // Un comprobante ya ANULADO (A) no se revierte por una consulta: si SUNAT no lo ve anulado, se avisa.
+    if (docu.states === 'A' && ['1', '3', '4'].includes(estadoCp)) {
+        return {
+            success: false,
+            sunat_status: estadoCp === '4' ? 'RECHAZADO' : 'ACEPTADO',
+            final_state: 'A',
+            message: `DISCREPANCIA: SUNAT lo muestra ${estadoCp === '4' ? 'NO AUTORIZADO/RECHAZADO' : 'ACEPTADO'} pero está ANULADO (A) en Faqture. No se modifica; requiere revisión manual.`
+        };
+    }
+
     if (estadoCp === '1' || estadoCp === '3') {
         if (docu.states === 'P' || docu.states === 'C') {
-            return { 
-                success: true, 
+            return {
+                success: true,
                 sunat_status: 'ACEPTADO',
                 final_state: docu.states,
                 message: `SUNAT: El comprobante está ACEPTADO en SUNAT y se mantiene en espera de anulación (Estado: ${docu.states}).` 
@@ -830,6 +840,16 @@ const executeUnifiedValidation = async (company, docu) => {
                 message: `No se pudo verificar en el PRO porque la empresa no tiene URL/Token configurados. El comprobante se mantiene en ${docu.states} (espera de anulación).`
             };
         }
+        // Sin respuesta de SUNAT no hay evidencia definitiva de que no exista: no se reinicia.
+        if (sunatNetworkError) {
+            return {
+                success: false,
+                sunat_status: 'ERROR_RED',
+                pro_status: 'SIN_CONFIGURACION_PRO',
+                final_state: docu.states,
+                message: `No se pudo consultar SUNAT y la empresa no tiene URL/Token del PRO. No se modifica el estado (${docu.states}); reintente la verificación.`
+            };
+        }
         let isAnulation = ['A', 'S', 'P', 'C', 'Z'].includes(docu.states);
         if (!isAnulation && docu.response_send) {
             const prev = parseJsonField(docu.response_send, {});
@@ -851,9 +871,22 @@ const executeUnifiedValidation = async (company, docu) => {
     const api = new ApiClient(`${company.url}/api/documents/lists/`, company.token);
     const apidocs = await api.getListDocumentByDate(`${company.url}/api/documents/lists/${dayBefore}/${dayAfter}`);
 
+    // Si el PRO no respondió con un listado válido (timeout, 5xx, URL/token caídos) NO se puede concluir que
+    // el comprobante no existe: se devuelve sin tocar el estado ni el external_id.
+    if (!Array.isArray(apidocs?.data)) {
+        const detail = typeof apidocs?.message === 'string' ? apidocs.message : (apidocs?.error || 'sin respuesta');
+        return {
+            success: false,
+            sunat_status: sunatNetworkError ? 'ERROR_RED' : 'NO_ENCONTRADO',
+            pro_status: 'ERROR_CONSULTA',
+            final_state: docu.states,
+            message: `No se pudo consultar el PRO (${detail}). No se modifica el estado (${docu.states}) para evitar desincronizar; reintente la verificación.`
+        };
+    }
+
     const numeroInt = parseInt(numeroClean, 10);
 
-    const match = Array.isArray(apidocs?.data) ? apidocs.data.find(el => {
+    const matchByNumber = (el) => {
         if (docu.external_id && el.external_id === docu.external_id) return true;
         if (el.number) {
             const parts = String(el.number).trim().split('-');
@@ -863,19 +896,57 @@ const executeUnifiedValidation = async (company, docu) => {
                 if (elSerie === serieClean.toUpperCase() && elNum === numeroInt) return true;
             }
         }
-        if (el.filename && el.filename.includes(`${serieClean}-${numeroClean}`)) return true;
         return false;
-    }) : null;
+    };
+
+    let match = apidocs.data.find(el => matchByNumber(el) || (el.filename && el.filename.includes(`${serieClean}-${numeroClean}`))) || null;
+
+    // Segunda pasada: el PRO puede tener el comprobante con otra fecha de emisión que Faqture (caso real observado:
+    // 4 días de diferencia). Antes de concluir que no existe se amplía la búsqueda a [fecha-7, fecha+30], sin pasar de mañana.
+    // Solo coincidencia exacta serie+número (sin filename.includes) para no dar falsos positivos en una lista mayor.
+    if (!match) {
+        const todayIso = formatDateISO(new Date());
+        const tomorrowIso = new Date(new Date(`${todayIso}T12:00:00Z`).getTime() + 86400000).toISOString().slice(0, 10);
+        const wideFrom = new Date(dateObj.getTime() - 7 * 86400000).toISOString().slice(0, 10);
+        const wideToRaw = new Date(dateObj.getTime() + 30 * 86400000).toISOString().slice(0, 10);
+        const wideTo = wideToRaw < tomorrowIso ? wideToRaw : tomorrowIso;
+
+        if (wideFrom <= wideTo) {
+            const apidocsWide = await api.getListDocumentByDate(`${company.url}/api/documents/lists/${wideFrom}/${wideTo}`);
+            if (!Array.isArray(apidocsWide?.data)) {
+                const detail = typeof apidocsWide?.message === 'string' ? apidocsWide.message : (apidocsWide?.error || 'sin respuesta');
+                return {
+                    success: false,
+                    sunat_status: sunatNetworkError ? 'ERROR_RED' : 'NO_ENCONTRADO',
+                    pro_status: 'ERROR_CONSULTA',
+                    final_state: docu.states,
+                    message: `No se pudo completar la búsqueda ampliada en el PRO (${detail}). No se modifica el estado (${docu.states}) para evitar desincronizar; reintente la verificación.`
+                };
+            }
+            match = apidocsWide.data.find(matchByNumber) || null;
+        }
+    }
 
     // PASO 3 & 4: Regularizar PRO y Faqture
     if (match) {
         const stateTypeId = String(match.state_type_id || '');
         const hasCdr = match.has_cdr === true || (match.has_cdr !== false && !!match.download_cdr);
 
+        // Un comprobante ya ANULADO (A) solo se confirma si el PRO también lo muestra anulado ('11').
+        if (docu.states === 'A' && stateTypeId !== '11') {
+            return {
+                success: false,
+                sunat_status: 'NO_ENCONTRADO_DIRECTO',
+                pro_status: stateTypeId === '05' ? 'ACEPTADO' : 'REGISTRADO',
+                final_state: 'A',
+                message: `DISCREPANCIA: el comprobante está ANULADO (A) en Faqture pero el PRO lo muestra con estado ${stateTypeId || 'desconocido'}. No se modifica; requiere revisión manual.`
+            };
+        }
+
         if (stateTypeId === '05' && hasCdr) {
             if (docu.states === 'P' || docu.states === 'C') {
-                return { 
-                    success: true, 
+                return {
+                    success: true,
                     sunat_status: 'NO_ENCONTRADO_DIRECTO',
                     pro_status: 'ACEPTADO',
                     final_state: docu.states,
@@ -1012,19 +1083,21 @@ const executeUnifiedValidation = async (company, docu) => {
             };
         }
 
+        // sendDoc() persiste el estado resultante (update_document) y pisaría P/C: no se reenvía si espera anulación.
+        if (['P', 'C'].includes(docu.states)) {
+            return {
+                success: true,
+                sunat_status: 'NO_ENCONTRADO',
+                pro_status: 'REGISTRADO',
+                final_state: docu.states,
+                message: `El comprobante está en el PRO pero aún no figura en SUNAT. No se reenvía para no alterar su espera de anulación; se mantiene en ${docu.states}.`
+            };
+        }
+
         const sendResult = await sendDoc(company, docu);
 
         if (sendResult.state === 'E' || sendResult.state === 'P' || sendResult.success || (typeof sendResult.message === 'string' && sendResult.message.includes('ya se encuentra registrado'))) {
             const finalSt = sendResult.state || 'E';
-            if (['P', 'C'].includes(docu.states) && finalSt !== 'A') {
-                return { 
-                    success: true, 
-                    sunat_status: 'DECLARADO',
-                    pro_status: 'ACEPTADO',
-                    final_state: docu.states,
-                    message: `Comprobante declarado en SUNAT. Se mantiene en ${docu.states} (espera de anulación).` 
-                };
-            }
             await update_document_state(id_document, company.tenant, { id: id_document, state: finalSt });
             return { 
                 success: true, 
@@ -1035,15 +1108,6 @@ const executeUnifiedValidation = async (company, docu) => {
             };
         } else {
             const errMsg = typeof sendResult.message === 'string' ? sendResult.message : JSON.stringify(sendResult.message);
-            if (['P', 'C'].includes(docu.states)) {
-                return { 
-                    success: false, 
-                    sunat_status: 'NO_ENCONTRADO',
-                    pro_status: 'PENDIENTE',
-                    final_state: docu.states,
-                    message: `Comprobante registrado en PRO pero falló al declarar a SUNAT: ${errMsg}. Se mantiene en ${docu.states} (espera de anulación).` 
-                };
-            }
             await update_document_state(id_document, company.tenant, { id: id_document, state: 'Y' });
             return { 
                 success: false, 
@@ -1066,18 +1130,20 @@ const executeUnifiedValidation = async (company, docu) => {
         }
 
         if (isAlreadyInPro) {
+            // sendDoc() persiste el estado resultante (update_document) y pisaría P/C/A: no se reenvía si espera o ya tiene anulación.
+            if (['P', 'C', 'A'].includes(docu.states)) {
+                return {
+                    success: true,
+                    sunat_status: 'NO_ENCONTRADO',
+                    pro_status: 'REGISTRADO_PREVIAMENTE',
+                    final_state: docu.states,
+                    message: `El comprobante ya existe en el PRO. No se reenvía para no alterar su espera de anulación; se mantiene en ${docu.states}.`
+                };
+            }
+
             const sendResult = await sendDoc(company, docu);
             if (sendResult.state === 'E' || sendResult.state === 'P' || sendResult.success || (typeof sendResult.message === 'string' && sendResult.message.includes('ya se encuentra registrado'))) {
                 const finalSt = sendResult.state || 'E';
-                if (['P', 'C'].includes(docu.states) && finalSt !== 'A') {
-                    return {
-                        success: true,
-                        sunat_status: 'DECLARADO',
-                        pro_status: 'REGISTRADO_PREVIAMENTE',
-                        final_state: docu.states,
-                        message: `PRO: El comprobante ya se encontraba registrado. Se mantiene en ${docu.states} (espera de anulación).`
-                    };
-                }
                 await update_document_state(id_document, company.tenant, { id: id_document, state: finalSt });
                 return {
                     success: true,
@@ -1087,15 +1153,6 @@ const executeUnifiedValidation = async (company, docu) => {
                     message: `PRO: El comprobante ya se encontraba registrado en el PRO. Sincronizado a ${finalSt}.`
                 };
             } else {
-                if (['P', 'C'].includes(docu.states)) {
-                    return {
-                        success: true,
-                        sunat_status: 'NO_ENCONTRADO',
-                        pro_status: 'REGISTRADO_PREVIAMENTE',
-                        final_state: docu.states,
-                        message: `El comprobante ya existe en el PRO pero no pudo declararse a SUNAT. Se mantiene en ${docu.states} (espera de anulación).`
-                    };
-                }
                 await update_document_state(id_document, company.tenant, { id: id_document, state: 'Y' });
                 return {
                     success: true,
@@ -1114,6 +1171,18 @@ const executeUnifiedValidation = async (company, docu) => {
                 pro_status: 'NO_EXISTE',
                 final_state: docu.states,
                 message: `El comprobante NO EXISTE en SUNAT ni en el PRO. Se mantiene en ${docu.states} (espera de anulación); no se modifica su estado.`
+            };
+        }
+
+        // Reiniciar el comprobante (N/S + external_id NULL) exige evidencia definitiva de que no existe:
+        // si SUNAT no respondió, "no figura en la ventana del PRO" no basta.
+        if (sunatNetworkError) {
+            return {
+                success: false,
+                sunat_status: 'ERROR_RED',
+                pro_status: 'NO_ENCONTRADO_EN_VENTANA',
+                final_state: docu.states,
+                message: `No se pudo consultar SUNAT y el comprobante no figura en el listado del PRO. No se modifica el estado (${docu.states}) para evitar desincronizar; reintente la verificación.`
             };
         }
 
@@ -1504,10 +1573,14 @@ const createCreditNotesForExpired = async (req, res, next) => {
 
                 const refSend = parseJsonField(doc.response_send, {});
                 const refAnulate = parseJsonField(doc.response_anulate, {});
-                const refExternalId = refSend?.data?.external_id || refSend?.external_id || refAnulate?.data?.external_id || refAnulate?.external_id || doc.external_id || null;
+                // La columna document.external_id y response_send.external_id de envíos fallidos guardan el id interno de
+                // Faqture (nanoid de 20 hex), no el del PRO: se descartan para no mandarlo como documento afectado.
+                const isInternalId = (v) => /^[0-9a-f]{20}$/i.test(String(v || ''));
+                const refExternalId = [refSend?.data?.external_id, refSend?.external_id, refAnulate?.data?.external_id, refAnulate?.external_id]
+                    .find((v) => v && !isInternalId(v)) || null;
 
                 if (!refExternalId) {
-                    results.push({ id_document: id_doc, document: docLabel, success: false, message: 'El comprobante no tiene external_id registrado del facturador PRO.' });
+                    results.push({ id_document: id_doc, document: docLabel, success: false, message: 'El comprobante no tiene external_id del facturador PRO (no fue declarado). No se puede emitir la Nota de Crédito.' });
                     errorCount++;
                     continue;
                 }
