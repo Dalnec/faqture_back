@@ -2,6 +2,7 @@ const pool = require('../db');
 const { sendZendyMessage } = require('./zendy.lib');
 const { sendMessage, getTextMessageInput } = require('./whatsapp.lib');
 const { formatPeruDate } = require('./report.libs');
+const { revertOriginalsOfRejectedCreditNotes } = require('./creditNotes.libs');
 
 /**
  * Traduce el código de tipo de comprobante a nombre legible.
@@ -404,6 +405,8 @@ const rejectedQueue = new RejectedNotificationQueue();
  * Se ejecuta en segundo plano sin retrasar la respuesta HTTP del cliente.
  */
 function enqueueRejectedDocument({ tenant, id_document, doc = null, company = null, company_number = null }) {
+    // Todo cambio a 'R' pasa por aquí: si era una NC, el comprobante que se marcó A al registrarla vuelve a su estado anterior.
+    revertOriginalsOfRejectedCreditNotes(tenant);
     rejectedQueue.enqueue({ tenant, id_document, doc, company, company_number }).catch((err) => {
         console.error('[enqueueRejectedDocument] Error:', err.message);
     });

@@ -1096,10 +1096,21 @@ const executeUnifiedValidation = async (company, docu) => {
 
         const sendResult = await sendDoc(company, docu);
 
+        // "Ya se encuentra registrado" solo confirma que el PRO lo tiene, no que SUNAT lo aceptó: sendDoc deja el estado en Y.
+        if (sendResult.state === 'Y') {
+            return {
+                success: true,
+                sunat_status: 'NO_ENCONTRADO',
+                pro_status: 'REGISTRADO',
+                final_state: 'Y',
+                message: `El comprobante está registrado en el PRO pero SUNAT aún no lo muestra aceptado. Queda en estado Y; use 'Forzar Envío PRO -> SUNAT' o espere el resumen diario.`
+            };
+        }
+
         if (sendResult.state === 'E' || sendResult.state === 'P' || sendResult.success || (typeof sendResult.message === 'string' && sendResult.message.includes('ya se encuentra registrado'))) {
             const finalSt = sendResult.state || 'E';
             await update_document_state(id_document, company.tenant, { id: id_document, state: finalSt });
-            return { 
+            return {
                 success: true, 
                 sunat_status: 'DECLARADO',
                 pro_status: 'ACEPTADO',
@@ -1358,6 +1369,12 @@ const repairBadGateways = async (req, res, next) => {
 
 const NC_LIMA_TZ = 'America/Lima';
 const NC_TOTAL_MOTIVES = new Set(['01', '06']);
+// Estados locales que esperan anulación: P (por anular), C (por consultar la baja) y Z (la baja falló o fue rechazada).
+const NC_ELIGIBLE_STATES = ['P', 'C', 'Z'];
+// Estados del PRO que equivalen a "aceptado por SUNAT": 05 Aceptado y 07 Observado (aceptado con observaciones).
+const NC_PRO_ACCEPTED_STATES = ['05', '07'];
+// Estados del PRO en que una NC está vigente: 01 Registrado, 03 Enviado, 05 Aceptado y 07 Observado (no rechazada ni anulada).
+const NC_PRO_ACTIVE_STATES = ['01', '03', '05', '07'];
 const ncInFlight = new Set();
 
 const ncGetLimaParts = (value = new Date()) => {
@@ -1445,6 +1462,114 @@ const ncParseNumber = (data, fallbackSerie) => {
     return null;
 };
 
+const ncAddDaysIso = (iso, days) => {
+    const utc = ncIsoToUtc(iso);
+    if (utc === null) return null;
+    return new Date(utc + days * 86400000).toISOString().slice(0, 10);
+};
+
+// Busca el comprobante en el listado del PRO por fecha (±1 día, como recoverExistingDocumentFromPro).
+// `cache` evita repetir el mismo listado cuando varios comprobantes comparten fecha dentro de una solicitud.
+const ncFindInPro = async (company, doc, cache) => {
+    const from = ncAddDaysIso(doc.emission_date, -1);
+    const to = ncAddDaysIso(doc.emission_date, 1);
+    if (!from || !to) return { listed: false, row: null };
+
+    let token = company.token;
+    if (Array.isArray(company.token_series)) {
+        const branch = company.token_series.find((e) => Array.isArray(e.series) && e.series.includes(doc.serie));
+        if (branch?.token) token = branch.token;
+    }
+    const baseUrl = String(company.url).trim().replace(/\/+$/, '');
+    const loadList = async (listFrom, listTo) => {
+        const key = `${token}|${listFrom}|${listTo}`;
+        if (!cache.has(key)) {
+            const api = new ApiClient(`${baseUrl}/api/documents/lists/`, token);
+            const res = await api.getListDocumentByDate(`${baseUrl}/api/documents/lists/${listFrom}/${listTo}`);
+            cache.set(key, Array.isArray(res?.data) ? res.data : null);
+        }
+        return cache.get(key);
+    };
+
+    const serie = String(doc.serie || '').trim().toUpperCase();
+    const numero = parseInt(doc.numero, 10);
+    const findRow = (list) => list.find((el) => {
+        const parts = String(el.number || '').trim().split('-');
+        return parts.length === 2 && parts[0].trim().toUpperCase() === serie && parseInt(parts[1].trim(), 10) === numero;
+    }) || null;
+
+    const list = await loadList(from, to);
+    if (!list) return { listed: false, row: null };
+    let row = findRow(list);
+    if (row) return { listed: true, row };
+
+    // El PRO puede tener el comprobante con otra fecha de emisión que Faqture (caso observado: 4 días de diferencia):
+    // segunda pasada en [fecha-7, fecha+30], sin pasar de mañana, con coincidencia exacta de serie y número.
+    const tomorrow = ncAddDaysIso(ncGetLimaTodayIso(), 1);
+    const wideFrom = ncAddDaysIso(doc.emission_date, -7);
+    let wideTo = ncAddDaysIso(doc.emission_date, 30);
+    if (wideTo > tomorrow) wideTo = tomorrow;
+    if (wideFrom && wideTo && wideFrom <= wideTo) {
+        const wideList = await loadList(wideFrom, wideTo);
+        if (!wideList) return { listed: false, row: null };
+        row = findRow(wideList);
+    }
+    return { listed: true, row };
+};
+
+// Consulta directa a SUNAT (la misma de "Validar Estado"). Devuelve el código estadoCp, o null si SUNAT no responde o no está configurado.
+const ncGetSunatCode = async (company, doc) => {
+    try {
+        const r = await validateVoucherOnSunat({
+            ruc: company.company_number,
+            codigoComp: String(doc.type),
+            serie: String(doc.serie || '').trim(),
+            numero: String(doc.numero || '').trim(),
+            fechaEmision: formatDateForSunat(doc.emission_date),
+            monto: Number(Number(doc.amount || 0).toFixed(2)),
+        });
+        const code = String(r?.data?.estadoCp ?? '').trim();
+        return code === '' ? null : code;
+    } catch (e) {
+        return null;
+    }
+};
+
+const NC_SUNAT_LABELS = { '0': 'no encontrado', '1': 'aceptado', '2': 'anulado', '3': 'autorizado', '4': 'rechazado' };
+
+// Decide si corresponde emitir la NC según lo que SUNAT y el PRO dicen del comprobante original.
+// SUNAT manda cuando responde algo definitivo (1/2/3/4); si no concluye (0 o sin respuesta) se usa el estado del PRO.
+const ncEvaluateOriginal = ({ sunatCode, pro }) => {
+    const proState = pro?.row ? String(pro.row.state_type_id || '') : null;
+    const proDesc = pro?.row ? (pro.row.state_type_description || proState || 'desconocido') : null;
+    const sunatAccepted = sunatCode === '1' || sunatCode === '3';
+
+    if (sunatCode === '2') return { action: 'annulled', source: 'SUNAT' };
+    if (sunatCode === '4') return { action: 'skip', message: 'SUNAT lo muestra RECHAZADO; no corresponde emitir una Nota de Crédito.' };
+
+    // Si el PRO contradice a SUNAT o tiene una baja en curso no se emite: una NC sobre un comprobante que se está dando de baja
+    // podría dejarlo anulado dos veces.
+    if (proState === '11') {
+        return sunatAccepted
+            ? { action: 'skip', message: 'DISCREPANCIA: el PRO lo muestra ANULADO pero SUNAT lo muestra aceptado. No se emitió la Nota de Crédito; requiere revisión manual.' }
+            : { action: 'annulled', source: 'el PRO' };
+    }
+    if (proState === '13') {
+        return { action: 'skip', message: 'El PRO lo muestra "Por anular": tiene una baja en proceso. No se emitió la Nota de Crédito; espere el resultado de la baja (o consulte su ticket) para no anularlo dos veces.' };
+    }
+    if (proState === '09') {
+        return { action: 'skip', message: sunatAccepted
+            ? 'DISCREPANCIA: el PRO lo muestra RECHAZADO pero SUNAT lo muestra aceptado. No se emitió la Nota de Crédito; requiere revisión manual.'
+            : 'El PRO lo muestra RECHAZADO; no corresponde emitir una Nota de Crédito.' };
+    }
+
+    if (sunatAccepted || NC_PRO_ACCEPTED_STATES.includes(proState)) return { action: 'emit' };
+
+    const sunatTxt = sunatCode === null ? 'sin respuesta' : (NC_SUNAT_LABELS[sunatCode] || `código ${sunatCode}`);
+    const proTxt = !pro?.listed ? 'sin respuesta' : (proDesc ? `"${proDesc}"` : 'no encontrado');
+    return { action: 'skip', message: `No se pudo confirmar que el comprobante esté aceptado (SUNAT: ${sunatTxt}; PRO: ${proTxt}). No se emitió la Nota de Crédito; regularice el comprobante o reintente.` };
+};
+
 const createCreditNotesForExpired = async (req, res, next) => {
     try {
         const { id_company, id_documents, serie_factura_nc, serie_boleta_nc, fecha_emision_nc, codigo_motivo_nc, descripcion_motivo_nc } = req.body || {};
@@ -1489,8 +1614,8 @@ const createCreditNotesForExpired = async (req, res, next) => {
         }
         const motivoDesc = (descripcion_motivo_nc ? String(descripcion_motivo_nc).trim() : 'ANULACION DE LA OPERACION').slice(0, 250);
 
-        const serieFacturaNc = String(serie_factura_nc || 'FC01').trim().toUpperCase();
-        const serieBoletaNc = String(serie_boleta_nc || 'BC01').trim().toUpperCase();
+        const serieFacturaNc = String(serie_factura_nc || 'FCE1').trim().toUpperCase();
+        const serieBoletaNc = String(serie_boleta_nc || 'BCE1').trim().toUpperCase();
         if (!/^F[A-Z0-9]{3}$/.test(serieFacturaNc) || !/^B[A-Z0-9]{3}$/.test(serieBoletaNc)) {
             return res.status(400).json({ success: false, message: 'Las series de NC deben tener 4 caracteres: F### para facturas y B### para boletas.' });
         }
@@ -1503,6 +1628,7 @@ const createCreditNotesForExpired = async (req, res, next) => {
             else invalidIds.push(rawId);
         }
         const uniqueIds = [...new Set(normalizedIds)];
+        const proListCache = new Map();
         const results = [];
         let successCount = 0;
         let errorCount = 0;
@@ -1547,8 +1673,8 @@ const createCreditNotesForExpired = async (req, res, next) => {
                     continue;
                 }
 
-                if (!['P', 'C'].includes(String(doc.states))) {
-                    results.push({ id_document: id_doc, document: docLabel, success: false, message: `El comprobante está en estado ${doc.states}; solo se permite regularizar comprobantes en P o C.` });
+                if (!NC_ELIGIBLE_STATES.includes(String(doc.states))) {
+                    results.push({ id_document: id_doc, document: docLabel, success: false, message: `El comprobante está en estado ${doc.states}; solo se permite regularizar comprobantes en P, C o Z.` });
                     errorCount++;
                     continue;
                 }
@@ -1579,22 +1705,19 @@ const createCreditNotesForExpired = async (req, res, next) => {
                 let refExternalId = [refSend?.data?.external_id, refSend?.external_id, refAnulate?.data?.external_id, refAnulate?.external_id]
                     .find((v) => v && !isInternalId(v)) || null;
 
-                // response_send puede estar vacío aunque el comprobante exista en el PRO (updateDocument lo limpia al pasar a M/N).
-                // Se busca en el PRO por fecha + serie-número. El id solo se usa en memoria: no se modifica el estado ni response_send,
-                // porque recoverExistingDocumentFromPro devuelve un estado propio (un C pasaría a E si se persistiera).
+                // Ubicación del comprobante en el PRO (listado por fecha, con caché por rango). Se consulta una sola vez por comprobante.
+                let proLookup = null;
+                const getProLookup = async () => {
+                    if (!proLookup) proLookup = await ncFindInPro(company, doc, proListCache);
+                    return proLookup;
+                };
+
+                // response_send puede estar vacío aunque el comprobante exista en el PRO (updateDocument lo limpia al pasar a M/N):
+                // el id se toma del listado del PRO. Solo se usa en memoria; no se modifica el estado ni response_send.
                 if (!refExternalId) {
-                    const recovered = await recoverExistingDocumentFromPro(company, doc);
-                    const recoveredId = recovered?.data?.external_id;
-                    if (recoveredId && !isInternalId(recoveredId)) {
-                        // Una NC solo procede contra un comprobante aceptado por SUNAT (05); cualquier otro estado se revisa a mano.
-                        if (String(recovered.data.state_type_id || '') !== '05') {
-                            const proDesc = recovered.data.state_type_description || recovered.data.state_type_id || 'desconocido';
-                            results.push({ id_document: id_doc, document: docLabel, success: false, message: `El comprobante existe en el PRO pero su estado es "${proDesc}" (no aceptado por SUNAT). No corresponde emitir la Nota de Crédito; revíselo manualmente.` });
-                            errorCount++;
-                            continue;
-                        }
-                        refExternalId = recoveredId;
-                    }
+                    const found = await getProLookup();
+                    const proId = found.row?.external_id;
+                    if (proId && !isInternalId(proId)) refExternalId = proId;
                 }
 
                 if (!refExternalId) {
@@ -1620,7 +1743,7 @@ const createCreditNotesForExpired = async (req, res, next) => {
                 }
 
                 const existingNc = await pool.query(
-                    `SELECT id_document, states, serie, numero
+                    `SELECT id_document, states, serie, numero, TO_CHAR(date::DATE, 'YYYY-MM-DD') AS emission_date
                      FROM ${tenant}.document
                      WHERE type = '07'
                        AND (json_format->'documento_afectado'->>'external_id' = $1
@@ -1630,15 +1753,56 @@ const createCreditNotesForExpired = async (req, res, next) => {
                 );
 
                 const existingNcRows = existingNc.rows;
-                const acceptedNc = existingNcRows.find((nc) => nc.states === 'E');
-                const pendingNc = existingNcRows.find((nc) => ['Y', 'P', 'C'].includes(nc.states));
+                // NC ya registrada en Faqture (E aceptada o Y registrada): no se emite otra. Se confirma su estado real en el PRO y,
+                // si sigue vigente, el comprobante original se marca como ANULADO (A) aunque la NC aún espere a SUNAT.
+                const activeNc = existingNcRows.find((nc) => nc.states === 'E') || existingNcRows.find((nc) => nc.states === 'Y');
+                const stalledNc = existingNcRows.find((nc) => ['P', 'C'].includes(nc.states));
                 const annulledNc = existingNcRows.find((nc) => nc.states === 'A');
 
-                if (acceptedNc) {
-                    const ncLabel = `${acceptedNc.serie}-${acceptedNc.numero}`;
+                if (activeNc) {
+                    const ncLabel = `${activeNc.serie}-${activeNc.numero}`;
+                    const ncInPro = await ncFindInPro(company, activeNc, proListCache);
+                    const ncProState = ncInPro.row ? String(ncInPro.row.state_type_id || '') : null;
+                    if (!NC_PRO_ACTIVE_STATES.includes(ncProState)) {
+                        const ncProDesc = ncInPro.row ? (ncInPro.row.state_type_description || ncProState || 'desconocido') : (ncInPro.listed ? 'no encontrada' : 'sin respuesta');
+                        results.push({
+                            id_document: id_doc,
+                            document: docLabel,
+                            success: false,
+                            nc_number: ncLabel,
+                            nc_state: activeNc.states,
+                            message: `La NC ${ncLabel} figura ${activeNc.states === 'E' ? 'aceptada' : 'registrada'} en Faqture pero en el PRO está "${ncProDesc}". No se marcó el comprobante como ANULADO; revise la NC y vuelva a intentar.`
+                        });
+                        errorCount++;
+                        continue;
+                    }
+
+                    const ncAccepted = NC_PRO_ACCEPTED_STATES.includes(ncProState);
+                    // Faqture la tenía en E pero el PRO solo la tiene registrada: se corrige a Y para que el proceso de resúmenes la siga.
+                    if (activeNc.states === 'E' && !ncAccepted) {
+                        await pool.query(
+                            `UPDATE ${tenant}.document SET states = 'Y', modified = NOW() WHERE id_document = $1 AND states = 'E'`,
+                            [activeNc.id_document]
+                        );
+                    }
+
+                    const annulPayload = {
+                        success: true,
+                        anulado_por_nc: true,
+                        nc_pending: !ncAccepted,
+                        nc_state: ncAccepted ? 'E' : 'Y',
+                        nc_number: ncLabel,
+                        nc_serie: activeNc.serie,
+                        nc_numero: activeNc.numero,
+                        previous_state: doc.states,
+                        message: ncAccepted
+                            ? `Anulado mediante Nota de Crédito ${ncLabel}`
+                            : `Anulado mediante la Nota de Crédito ${ncLabel}, registrada en el PRO y pendiente de aceptación en SUNAT`,
+                        date: new Date().toISOString()
+                    };
                     const updateRes = await pool.query(
-                        `UPDATE ${tenant}.document SET states = 'A', modified = NOW() WHERE id_document = $1 AND states IN ('P', 'C')`,
-                        [id_doc]
+                        `UPDATE ${tenant}.document SET states = 'A', response_anulate = $2::jsonb, modified = NOW() WHERE id_document = $1 AND states IN ('P', 'C', 'Z')`,
+                        [id_doc, JSON.stringify(annulPayload)]
                     );
                     const marked = updateRes.rowCount > 0;
                     results.push({
@@ -1646,18 +1810,20 @@ const createCreditNotesForExpired = async (req, res, next) => {
                         document: docLabel,
                         success: true,
                         nc_number: ncLabel,
-                        nc_state: 'E',
+                        nc_state: ncAccepted ? 'E' : 'Y',
                         message: marked
-                            ? `Ya existe la NC ${ncLabel} aceptada. Comprobante marcado como ANULADO (A).`
-                            : `Ya existe la NC ${ncLabel} aceptada, pero el comprobante ya no está en P/C; no se modificó.`
+                            ? (ncAccepted
+                                ? `Ya existe la NC ${ncLabel} aceptada. Comprobante marcado como ANULADO (A).`
+                                : `Ya existe la NC ${ncLabel} registrada en el PRO (pendiente de SUNAT). Comprobante marcado como ANULADO (A); si SUNAT la rechaza, volverá a ${doc.states}.`)
+                            : `Ya existe la NC ${ncLabel}, pero el comprobante ya no está en P/C/Z; no se modificó.`
                     });
                     successCount++;
                     continue;
                 }
 
-                if (pendingNc) {
-                    const ncLabel = `${pendingNc.serie}-${pendingNc.numero}`;
-                    results.push({ id_document: id_doc, document: docLabel, success: false, nc_number: ncLabel, nc_state: pendingNc.states, message: `Ya existe la NC ${ncLabel} en estado ${pendingNc.states}. No se emite otra; requiere revisión manual.` });
+                if (stalledNc) {
+                    const ncLabel = `${stalledNc.serie}-${stalledNc.numero}`;
+                    results.push({ id_document: id_doc, document: docLabel, success: false, nc_number: ncLabel, nc_state: stalledNc.states, message: `Ya existe la NC ${ncLabel} en estado ${stalledNc.states}. No se emite otra; requiere revisión manual.` });
                     errorCount++;
                     continue;
                 }
@@ -1665,6 +1831,62 @@ const createCreditNotesForExpired = async (req, res, next) => {
                 if (annulledNc) {
                     const ncLabel = `${annulledNc.serie}-${annulledNc.numero}`;
                     results.push({ id_document: id_doc, document: docLabel, success: false, nc_number: ncLabel, nc_state: 'A', message: `Ya existe la NC ${ncLabel}, pero está ANULADA (A). El comprobante original no se modifica; requiere revisión manual.` });
+                    errorCount++;
+                    continue;
+                }
+
+                // Verificación del estado real del comprobante original antes de emitir: SUNAT primero, el PRO como respaldo.
+                // Si ya está anulado se sincroniza a A y no se emite; si está rechazado o no se confirma aceptado, no se emite.
+                const sunatCode = await ncGetSunatCode(company, doc);
+                const proInfo = await getProLookup();
+                const verdict = ncEvaluateOriginal({ sunatCode, pro: proInfo });
+                if (verdict.action === 'annulled') {
+                    const annulRes = await pool.query(
+                        `UPDATE ${tenant}.document SET states = 'A', modified = NOW() WHERE id_document = $1 AND states IN ('P', 'C', 'Z')`,
+                        [id_doc]
+                    );
+                    results.push({
+                        id_document: id_doc,
+                        document: docLabel,
+                        success: false,
+                        message: `Ya figura ANULADO en ${verdict.source}; no se emitió Nota de Crédito. ${annulRes.rowCount > 0 ? 'Se marcó como ANULADO (A) en Faqture.' : 'En Faqture ya no estaba en P/C/Z; no se modificó.'}`
+                    });
+                    errorCount++;
+                    continue;
+                }
+                if (verdict.action === 'skip') {
+                    results.push({ id_document: id_doc, document: docLabel, success: false, message: verdict.message });
+                    errorCount++;
+                    continue;
+                }
+
+                // El PRO lista las notas ya asociadas al comprobante. Si hay una que Faqture no tiene registrada (emitida fuera de Faqture,
+                // o cuyo guardado local falló tras un timeout) o que sigue vigente, no se emite otra para no duplicar.
+                // Solo una NC rechazada (R) en Faqture permite volver a emitir.
+                const proNotes = Array.isArray(proInfo.row?.notes) ? proInfo.row.notes : [];
+                const blockingNotes = [];
+                for (const note of proNotes) {
+                    const noteLabel = String(note?.description || '').trim();
+                    const [noteSerie, noteNum] = noteLabel.split('-');
+                    let localState = null;
+                    if (noteSerie && noteNum) {
+                        const localNote = await pool.query(
+                            `SELECT states FROM ${tenant}.document WHERE type = '07' AND serie = $1 AND numero = $2 LIMIT 1`,
+                            [noteSerie.trim().toUpperCase(), parseInt(noteNum, 10)]
+                        );
+                        localState = localNote.rows[0]?.states ?? null;
+                    }
+                    if (localState !== 'R') {
+                        blockingNotes.push(localState ? `${noteLabel} (en Faqture: ${localState})` : `${noteLabel || 'sin número'} (no registrada en Faqture)`);
+                    }
+                }
+                if (blockingNotes.length > 0) {
+                    results.push({
+                        id_document: id_doc,
+                        document: docLabel,
+                        success: false,
+                        message: `El PRO ya tiene Nota(s) de Crédito asociada(s) a este comprobante: ${blockingNotes.join(', ')}. No se emitió otra para no duplicar; revíselas en el PRO.`
+                    });
                     errorCount++;
                     continue;
                 }
@@ -1682,6 +1904,20 @@ const createCreditNotesForExpired = async (req, res, next) => {
                 const originalTotals = (originalJson.totales && typeof originalJson.totales === 'object')
                     ? originalJson.totales
                     : {};
+
+                // Una NC por anulación debe cubrir el mismo importe del comprobante que figura en el PRO/SUNAT.
+                const ncTotalToSend = Number(originalTotals.total_venta ?? doc.amount);
+                const proTotal = Number(proInfo.row?.total);
+                if (proInfo.row && Number.isFinite(proTotal) && Number.isFinite(ncTotalToSend) && Math.abs(proTotal - ncTotalToSend) > 0.01) {
+                    results.push({
+                        id_document: id_doc,
+                        document: docLabel,
+                        success: false,
+                        message: `El total del comprobante en el PRO (S/ ${proTotal.toFixed(2)}) no coincide con el de Faqture (S/ ${ncTotalToSend.toFixed(2)}). No se emitió la Nota de Crédito; revise el comprobante.`
+                    });
+                    errorCount++;
+                    continue;
+                }
 
                 const ncPayload = {
                     serie_documento: ncSerie,
@@ -1746,6 +1982,9 @@ const createCreditNotesForExpired = async (req, res, next) => {
                     if (/ya se encuentra registrado/i.test(errMsg)) {
                         errMsg = `El PRO ya tiene una NC registrada para este comprobante (${errMsg}). Verifique manualmente su serie/número antes de reintentar.`;
                     }
+                    if (resPro?.error === 'NO_RESPONSE') {
+                        errMsg = `El PRO no respondió (${errMsg}); es posible que la NC sí se haya creado. Revise en el PRO antes de reintentar: si ya la tiene asociada, el generador no emitirá otra.`;
+                    }
                     results.push({ id_document: id_doc, document: docLabel, success: false, message: errMsg });
                     errorCount++;
                     continue;
@@ -1775,17 +2014,18 @@ const createCreditNotesForExpired = async (req, res, next) => {
 
                 const anulatePayload = {
                     success: ncState !== 'R',
-                    anulado_por_nc: ncState === 'E',
+                    anulado_por_nc: ['E', 'Y'].includes(ncState),
                     nc_pending: ncState === 'Y',
                     nc_state: ncState,
                     nc_number: ncNumberFull,
                     nc_serie: genSerie,
                     nc_numero: genNumero,
                     nc_external_id: ncExternalId,
+                    previous_state: doc.states,
                     message: ncState === 'E'
                         ? `Anulado mediante Nota de Crédito ${ncNumberFull}`
                         : ncState === 'Y'
-                            ? `Nota de Crédito ${ncNumberFull} emitida, pendiente de aceptación en SUNAT`
+                            ? `Anulado mediante la Nota de Crédito ${ncNumberFull}, registrada en el PRO y pendiente de aceptación en SUNAT`
                             : ncState === 'A'
                                 ? `Nota de Crédito ${ncNumberFull} anulada; el comprobante original se mantiene`
                                 : `Nota de Crédito ${ncNumberFull} rechazada por SUNAT`,
@@ -1847,13 +2087,16 @@ const createCreditNotesForExpired = async (req, res, next) => {
                         finalNcState = existingRow?.states || 'Y';
                     }
 
-                    const shouldAnnul = finalNcState === 'E';
+                    // El comprobante se marca ANULADO apenas la NC queda registrada (Y) o aceptada (E). Si SUNAT la rechaza después,
+                    // revertOriginalsOfRejectedCreditNotes lo devuelve a `previous_state`.
+                    const shouldAnnul = ['E', 'Y'].includes(finalNcState);
                     const finalAnulatePayload = {
                         ...anulatePayload,
                         success: finalNcState !== 'R',
                         anulado_por_nc: shouldAnnul,
                         nc_pending: finalNcState === 'Y',
-                        nc_state: finalNcState
+                        nc_state: finalNcState,
+                        previous_state: doc.states
                     };
 
                     const updateRes = await client.query(
@@ -1861,7 +2104,7 @@ const createCreditNotesForExpired = async (req, res, next) => {
                          SET states = CASE WHEN $3 THEN 'A' ELSE states END,
                              response_anulate = $1::jsonb,
                              modified = NOW()
-                         WHERE id_document = $2 AND states IN ('P', 'C')`,
+                         WHERE id_document = $2 AND states IN ('P', 'C', 'Z')`,
                         [JSON.stringify(finalAnulatePayload), id_doc, shouldAnnul]
                     );
                     const originalUpdated = updateRes.rowCount > 0;
@@ -1871,9 +2114,10 @@ const createCreditNotesForExpired = async (req, res, next) => {
                     const isRejected = finalNcState === 'R';
                     let resultMessage;
                     if (shouldAnnul) {
+                        const ncDesc = finalNcState === 'E' ? 'aceptada' : 'registrada en el PRO (pendiente de SUNAT)';
                         resultMessage = originalUpdated
-                            ? `Nota de Crédito ${ncNumberFull} aceptada. Comprobante original marcado como ANULADO (A).`
-                            : `Nota de Crédito ${ncNumberFull} aceptada, pero el comprobante ya no está en P/C; no se modificó.`;
+                            ? `Nota de Crédito ${ncNumberFull} ${ncDesc}. Comprobante original marcado como ANULADO (A).${finalNcState === 'Y' ? ` Si SUNAT la rechaza, volverá a ${doc.states}.` : ''}`
+                            : `Nota de Crédito ${ncNumberFull} ${finalNcState === 'E' ? 'aceptada' : 'registrada'}, pero el comprobante ya no está en P/C/Z; no se modificó.`;
                     } else if (isRejected) {
                         resultMessage = `Nota de Crédito ${ncNumberFull} rechazada por SUNAT. El comprobante original se mantiene en ${doc.states}.`;
                     } else if (finalNcState === 'A') {

@@ -4,6 +4,7 @@ const { selectAllApiCompany } = require('./company.libs');
 const { resetTicketSingleShipment } = require('./connection');
 const { notifyError } = require('./logger');
 const { parseJsonField } = require('./json.libs');
+const { revertOriginalsOfRejectedCreditNotes } = require('./creditNotes.libs');
 
 /**
  * Valida formato de fecha ISO YYYY-MM-DD.
@@ -44,6 +45,18 @@ const buildSqlInClause = (typesArray) => {
     const cleanTypes = typesArray.filter(t => /^[0-9a-zA-Z]+$/.test(t)).map(t => `'${t}'`);
     return `type IN (${cleanTypes.join(', ')})`;
 };
+
+/**
+ * Filtro para los flujos de resumen diario: solo boletas (03) y notas vinculadas a boletas (serie B).
+ * Las notas de facturas (serie F) no van en un resumen: se envían una a una en "Reenviar Facturas y Notas de Facturas
+ * Pendientes". Sin este filtro, un resumen de boletas aceptado las marcaba como E aunque SUNAT nunca las hubiera recibido.
+ */
+const buildBoletaFamilyClause = (typesArray) =>
+    `${buildSqlInClause(typesArray)} AND (type = '03' OR UPPER(serie) LIKE 'B%')`;
+
+// Fecha YYYY-MM-DD en America/Lima (zona horaria obligatoria para SUNAT y crons): con UTC, de 19:00 a 23:59 "hoy" sería mañana.
+const limaIsoDate = (date = new Date()) =>
+    new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Lima', year: 'numeric', month: '2-digit', day: '2-digit' }).format(date);
 
 /**
  * Determina si un documento es Factura (01) o Nota (07/08) vinculada a Factura.
@@ -109,7 +122,7 @@ const getPendingBoletaDates = async (tenant, effectiveBoletaTypes, maxDaysBack =
     try {
         if (!tenant || !effectiveBoletaTypes || effectiveBoletaTypes.length === 0) return [];
         
-        const typeClause = buildSqlInClause(effectiveBoletaTypes);
+        const typeClause = buildBoletaFamilyClause(effectiveBoletaTypes);
         const query = `
             SELECT DISTINCT TO_CHAR(date::DATE, 'YYYY-MM-DD') AS emission_date
             FROM ${tenant}.document
@@ -184,7 +197,7 @@ const updateBoletasAcceptedForDate = async (tenant, date, effectiveBoletaTypes, 
     try {
         if (!tenant || !isValidIsoDate(date) || !effectiveBoletaTypes || effectiveBoletaTypes.length === 0) return 0;
 
-        const typeClause = buildSqlInClause(effectiveBoletaTypes);
+        const typeClause = buildBoletaFamilyClause(effectiveBoletaTypes);
         const responseSendJson = JSON.stringify({
             success: true,
             state: 'E',
@@ -223,7 +236,7 @@ const updateBoletasPendingTicketForDate = async (tenant, date, effectiveBoletaTy
     try {
         if (!tenant || !isValidIsoDate(date) || !effectiveBoletaTypes || effectiveBoletaTypes.length === 0 || !ticket) return 0;
 
-        const typeClause = buildSqlInClause(effectiveBoletaTypes);
+        const typeClause = buildBoletaFamilyClause(effectiveBoletaTypes);
         const responseSendJson = JSON.stringify({
             success: true,
             state: 'Y',
@@ -260,7 +273,7 @@ const updateBoletasRejectedForDate = async (tenant, date, effectiveBoletaTypes, 
     try {
         if (!tenant || !isValidIsoDate(date) || !effectiveBoletaTypes || effectiveBoletaTypes.length === 0) return 0;
 
-        const typeClause = buildSqlInClause(effectiveBoletaTypes);
+        const typeClause = buildBoletaFamilyClause(effectiveBoletaTypes);
         const responseSendJson = JSON.stringify({
             success: false,
             state: 'R',
@@ -307,7 +320,7 @@ const consultPendingSummaryTicketsForCompany = async (company, effectiveBoletaTy
         if (!company?.tenant || !company?.url || !company?.token) return 0;
         if (!effectiveBoletaTypes || effectiveBoletaTypes.length === 0) return 0;
 
-        const typeClause = buildSqlInClause(effectiveBoletaTypes);
+        const typeClause = buildBoletaFamilyClause(effectiveBoletaTypes);
         const query = `
             SELECT id_document, TO_CHAR(date::DATE, 'YYYY-MM-DD') as emission_date, response_send
             FROM ${company.tenant}.document
@@ -414,8 +427,8 @@ const processSummariesAndPendingForCompany = async (company, options = {}) => {
             
             // Incluir fechas pendientes y asegurar fechas recientes (hoy y ayer) para capturar ventas del día
             const datesToProcess = [...pendingDates];
-            const today = new Date().toISOString().split('T')[0];
-            const yesterday = new Date(Date.now() - 86400000).toISOString().split('T')[0];
+            const today = limaIsoDate();
+            const yesterday = limaIsoDate(new Date(Date.now() - 86400000));
             if (!datesToProcess.includes(today)) datesToProcess.push(today);
             if (!datesToProcess.includes(yesterday)) datesToProcess.push(yesterday);
 
@@ -515,6 +528,9 @@ const processSummariesAndPendingForCompany = async (company, options = {}) => {
                 }
             }
         }
+
+        // ─── 3. Red de seguridad: comprobantes anulados por una NC que SUNAT terminó rechazando vuelven a su estado anterior ───
+        await revertOriginalsOfRejectedCreditNotes(company.tenant);
 
     } catch (error) {
         console.error(`[Summary Libs] Error procesando resúmenes en empresa ${company.tenant}:`, error.message);
