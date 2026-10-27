@@ -1576,11 +1576,29 @@ const createCreditNotesForExpired = async (req, res, next) => {
                 // La columna document.external_id y response_send.external_id de envíos fallidos guardan el id interno de
                 // Faqture (nanoid de 20 hex), no el del PRO: se descartan para no mandarlo como documento afectado.
                 const isInternalId = (v) => /^[0-9a-f]{20}$/i.test(String(v || ''));
-                const refExternalId = [refSend?.data?.external_id, refSend?.external_id, refAnulate?.data?.external_id, refAnulate?.external_id]
+                let refExternalId = [refSend?.data?.external_id, refSend?.external_id, refAnulate?.data?.external_id, refAnulate?.external_id]
                     .find((v) => v && !isInternalId(v)) || null;
 
+                // response_send puede estar vacío aunque el comprobante exista en el PRO (updateDocument lo limpia al pasar a M/N).
+                // Se busca en el PRO por fecha + serie-número. El id solo se usa en memoria: no se modifica el estado ni response_send,
+                // porque recoverExistingDocumentFromPro devuelve un estado propio (un C pasaría a E si se persistiera).
                 if (!refExternalId) {
-                    results.push({ id_document: id_doc, document: docLabel, success: false, message: 'El comprobante no tiene external_id del facturador PRO (no fue declarado). No se puede emitir la Nota de Crédito.' });
+                    const recovered = await recoverExistingDocumentFromPro(company, doc);
+                    const recoveredId = recovered?.data?.external_id;
+                    if (recoveredId && !isInternalId(recoveredId)) {
+                        // Una NC solo procede contra un comprobante aceptado por SUNAT (05); cualquier otro estado se revisa a mano.
+                        if (String(recovered.data.state_type_id || '') !== '05') {
+                            const proDesc = recovered.data.state_type_description || recovered.data.state_type_id || 'desconocido';
+                            results.push({ id_document: id_doc, document: docLabel, success: false, message: `El comprobante existe en el PRO pero su estado es "${proDesc}" (no aceptado por SUNAT). No corresponde emitir la Nota de Crédito; revíselo manualmente.` });
+                            errorCount++;
+                            continue;
+                        }
+                        refExternalId = recoveredId;
+                    }
+                }
+
+                if (!refExternalId) {
+                    results.push({ id_document: id_doc, document: docLabel, success: false, message: 'El comprobante no tiene external_id del facturador PRO y tampoco se encontró en el PRO por fecha y serie-número (no fue declarado). No se puede emitir la Nota de Crédito.' });
                     errorCount++;
                     continue;
                 }
@@ -1684,6 +1702,10 @@ const createCreditNotesForExpired = async (req, res, next) => {
                         ubigeo: originalCustomer.ubigeo ?? '',
                         direccion: originalCustomer.direccion || '-'
                     },
+                    // El PRO lee estos dos campos para `notes.note_credit_type_id` y `notes.note_description`; sin ellos el INSERT falla
+                    // con "Column 'note_description' cannot be null". Se mantienen los nombres anteriores por compatibilidad.
+                    codigo_tipo_nota: motivoDoc,
+                    motivo_o_sustento_de_nota: motivoDesc,
                     codigo_motivo_documento: motivoDoc,
                     descripcion_motivo: motivoDesc,
                     documento_afectado: {
