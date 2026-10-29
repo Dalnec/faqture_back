@@ -588,7 +588,9 @@ const recoverExistingDocumentFromPro = async (company, docu, cachedApiDocs = nul
         if (!match) return null;
 
         let st = 'Y';
-        if (match.state_type_id === '05' || (match.has_cdr === true || !!match.download_cdr)) {
+        // download_cdr es un enlace que el PRO devuelve siempre, haya o no CDR: solo cuenta si el PRO no informa has_cdr.
+        // Sin esto, un comprobante "Registrado" (sin CDR) se marcaba como aceptado (E) en Faqture.
+        if (match.state_type_id === '05' || match.has_cdr === true || (match.has_cdr !== false && !!match.download_cdr)) {
             st = (docu.states === 'P') ? 'P' : 'E'; // Si en Faqture ya estaba por anular, mantener 'P'
         } else if (match.state_type_id === '09') {
             st = 'R'; // Rechazado SUNAT
