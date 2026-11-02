@@ -187,10 +187,13 @@ const get_docs_month_filter = async (tenant, filters) => {
  * Guardar la respuesta de SUNAT NO debe marcarlo como revisado: si un rechazo se persiste con
  * verified=true, getAllRejectedDocsAllCompanies (filtra verified IS NULL OR false) lo oculta del módulo
  * aunque el notificador de WhatsApp sí avise. Regresión introducida en 1b81502 (13/oct).
- * - Estado 'R': forzar verified=false para que (re)aparezca en el módulo hasta que alguien lo revise.
+ * - Estado 'R': pasa a verified=false SOLO si el documento NO estaba ya en 'R' (transición nueva a rechazado),
+ *   para que aparezca en el módulo hasta que alguien lo revise. Si ya estaba en 'R' se conserva su verified:
+ *   verifyingExternalIds (botón/cron Verificar) vuelve a procesar docs ya rechazados y no debe deshacer un
+ *   "Revisado" manual. (En un UPDATE, `states` del lado derecho es el valor ANTERIOR de la fila.)
  * - Otros estados: no tocar la columna.
  */
-const verifiedClauseForState = (state) => (state === 'R' ? ', verified=false' : '');
+const verifiedClauseForState = (state) => (state === 'R' ? ", verified = CASE WHEN states = 'R' THEN verified ELSE false END" : '');
 
 const update_document = async (id, tenant, data) => {
     try {
