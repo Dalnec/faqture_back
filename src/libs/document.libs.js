@@ -182,6 +182,19 @@ const get_docs_month_filter = async (tenant, filters) => {
     }
 }
 
+/**
+ * `verified` significa "revisado por una persona" (botón "Revisado" del módulo de rechazados).
+ * Guardar la respuesta de SUNAT NO debe marcarlo como revisado: si un rechazo se persiste con
+ * verified=true, getAllRejectedDocsAllCompanies (filtra verified IS NULL OR false) lo oculta del módulo
+ * aunque el notificador de WhatsApp sí avise. Regresión introducida en 1b81502 (13/oct).
+ * - Estado 'R': pasa a verified=false SOLO si el documento NO estaba ya en 'R' (transición nueva a rechazado),
+ *   para que aparezca en el módulo hasta que alguien lo revise. Si ya estaba en 'R' se conserva su verified:
+ *   verifyingExternalIds (botón/cron Verificar) vuelve a procesar docs ya rechazados y no debe deshacer un
+ *   "Revisado" manual. (En un UPDATE, `states` del lado derecho es el valor ANTERIOR de la fila.)
+ * - Otros estados: no tocar la columna.
+ */
+const verifiedClauseForState = (state) => (state === 'R' ? ", verified = CASE WHEN states = 'R' THEN verified ELSE false END" : '');
+
 const update_document = async (id, tenant, data) => {
     try {
         if (!id || !tenant || !/^[a-zA-Z0-9_]+$/.test(tenant)) { return false; }
@@ -192,10 +205,10 @@ const update_document = async (id, tenant, data) => {
         let query;
         let params;
         if (externalId) {
-            query = `UPDATE ${tenant}.document SET states=$1, response_send=$2, modified=$3, external_id=COALESCE($4, external_id), verified=true WHERE id_document=$5`;
+            query = `UPDATE ${tenant}.document SET states=$1, response_send=$2, modified=$3, external_id=COALESCE($4, external_id)${verifiedClauseForState(data.state)} WHERE id_document=$5`;
             params = [data.state, datos, now, externalId, id];
         } else {
-            query = `UPDATE ${tenant}.document SET states=$1, response_send=$2, modified=$3, verified=true WHERE id_document=$4`;
+            query = `UPDATE ${tenant}.document SET states=$1, response_send=$2, modified=$3${verifiedClauseForState(data.state)} WHERE id_document=$4`;
             params = [data.state, datos, now, id];
         }
 
@@ -256,11 +269,11 @@ const update_returning_document = async (id, tenant, data) => {
         let query;
         let params;
         if (externalId) {
-            query = `UPDATE ${tenant}.document SET states=$1, response_send=$2, modified=$3, external_id=COALESCE($4, external_id), verified=true WHERE id_document=$5
+            query = `UPDATE ${tenant}.document SET states=$1, response_send=$2, modified=$3, external_id=COALESCE($4, external_id)${verifiedClauseForState(data.state)} WHERE id_document=$5
             RETURNING id_document, json_format, response_send, response_anulate, states, type, external_id`;
             params = [data.state, datos, now, externalId, id];
         } else {
-            query = `UPDATE ${tenant}.document SET states=$1, response_send=$2, modified=$3, verified=true WHERE id_document=$4
+            query = `UPDATE ${tenant}.document SET states=$1, response_send=$2, modified=$3${verifiedClauseForState(data.state)} WHERE id_document=$4
             RETURNING id_document, json_format, response_send, response_anulate, states, type, external_id`;
             params = [data.state, datos, now, id];
         }
