@@ -57,12 +57,12 @@ async function getRejectedAlertRecipientPhone() {
 /**
  * Extrae el código y descripción del error/rechazo de SUNAT de forma limpia y legible.
  */
-function extractRejectionReason(responseSend) {
+function extractRejectionReason(responseSend, { withCode = true } = {}) {
     if (!responseSend) return 'Sin detalle de respuesta de SUNAT.';
     try {
         const data = typeof responseSend === 'string' ? JSON.parse(responseSend) : responseSend;
         if (data?.response?.description) {
-            const code = data.response.code ? `Error ${data.response.code}: ` : '';
+            const code = withCode && data.response.code ? `Error ${data.response.code}: ` : '';
             return `${code}${data.response.description}`;
         }
         if (data?.message) {
@@ -82,7 +82,7 @@ function extractRejectionReason(responseSend) {
 
 /**
  * Formatea el texto de la alerta individual de comprobante rechazado para WhatsApp.
- * Formato exacto solicitado: Empresa, Comprobante, Fecha de emisión, Cliente, Total (sin motivo de rechazo).
+ * Formato: Empresa, Comprobante, Fecha de emisión, Cliente, Total y, al final, el motivo de rechazo de SUNAT.
  */
 function formatRejectedVoucherAlert({ tenant, company, company_number, doc }) {
     const typeName = getDocumentTypeName(doc?.type);
@@ -97,7 +97,8 @@ function formatRejectedVoucherAlert({ tenant, company, company_number, doc }) {
         `📄 Comprobante: ${typeName} ${voucherNum}\n` +
         `📅 Fecha de emisión: ${dateStr}\n` +
         `👤 Cliente: ${clientStr}\n` +
-        `💰 Total: S/ ${amountStr}`
+        `💰 Total: S/ ${amountStr}\n\n` +
+        `${extractRejectionReason(doc?.response_send, { withCode: false })}`
     );
 }
 
@@ -286,7 +287,7 @@ class RejectedNotificationQueue {
         if (!docData || !docData.date || !docData.amount || !docData.customer) {
             try {
                 const docRes = await pool.query(`
-                    SELECT id_document, date, type, serie, numero, customer_number, customer, amount, states
+                    SELECT id_document, date, type, serie, numero, customer_number, customer, amount, states, response_send
                     FROM ${item.tenant}.document
                     WHERE id_document = $1
                 `, [item.id_document]);
@@ -311,6 +312,17 @@ class RejectedNotificationQueue {
                 );
             } catch (_) {}
             return;
+        }
+
+        // El motivo de rechazo siempre se lee de la BD si el doc recibido no lo trae (o está desactualizado)
+        if (!docData.response_send) {
+            try {
+                const rsRes = await pool.query(
+                    `SELECT response_send FROM ${item.tenant}.document WHERE id_document = $1`,
+                    [docData.id_document || item.id_document]
+                );
+                if (rsRes.rows.length > 0) docData = { ...docData, response_send: rsRes.rows[0].response_send };
+            } catch (e) {}
         }
 
         if (!companyName || !companyRuc) {
