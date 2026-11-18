@@ -81,8 +81,14 @@ function extractRejectionReason(responseSend, { withCode = true } = {}) {
 }
 
 /**
+ * Identificador del sistema emisor de la alerta. Existen dos Faqture (este, el anterior, y uno nuevo) que envían
+ * alertas de rechazados a los mismos celulares; este texto permite saber de cuál proviene cada alerta.
+ */
+const REJECTED_REPORT_SOURCE = 'Reporte del Faqture 1';
+
+/**
  * Formatea el texto de la alerta individual de comprobante rechazado para WhatsApp.
- * Formato: Empresa, Comprobante, Fecha de emisión, Cliente, Total y, al final, el motivo de rechazo de SUNAT.
+ * Formato: Identificador del sistema, Empresa, Comprobante, Fecha de emisión, Cliente, Total y, al final, el motivo de rechazo de SUNAT.
  */
 function formatRejectedVoucherAlert({ tenant, company, company_number, doc }) {
     const typeName = getDocumentTypeName(doc?.type);
@@ -92,7 +98,8 @@ function formatRejectedVoucherAlert({ tenant, company, company_number, doc }) {
     const clientStr = [doc?.customer_number, doc?.customer].filter(Boolean).join(' - ') || 'No especificado';
 
     return (
-        `🚨 ALERTA: COMPROBANTE RECHAZADO SUNAT\n\n` +
+        `🚨 ALERTA: COMPROBANTE RECHAZADO SUNAT\n` +
+        `📌 ${REJECTED_REPORT_SOURCE}\n\n` +
         `🏢 Empresa:  ${company || tenant}  (RUC: ${company_number || 'N/A'})\n` +
         `📄 Comprobante: ${typeName} ${voucherNum}\n` +
         `📅 Fecha de emisión: ${dateStr}\n` +
@@ -250,6 +257,55 @@ class RejectedNotificationQueue {
     }
 
     /**
+     * Encola una alerta de texto libre (ej. resumen diario rechazado por SUNAT, Tarea 5) en la MISMA cola
+     * anti-spam y hacia los MISMOS celulares de alertas de rechazados (whatsapp_report_phone_2..5).
+     * La idempotencia (una alerta por ticket) la controla quien llama; aquí solo se evitan duplicados en memoria.
+     */
+    enqueueText({ key, text }) {
+        if (!key || !text) return;
+        if (this.queue.some((item) => item.kind === 'text' && item.key === key)) return;
+        this.queue.push({ kind: 'text', key, text });
+        console.log(`[RejectedQueue] Encolada alerta de texto (${key}). Total en cola: ${this.queue.length}`);
+        if (!this.isProcessing) {
+            this.processQueue().catch((err) => {
+                console.error('[RejectedQueue] Error procesando cola de rechazados:', err);
+            });
+        }
+    }
+
+    /**
+     * Despacha una alerta de texto a los celulares de rechazados, con la misma pausa anti-spam de la cola.
+     */
+    async dispatchText(item) {
+        const phones = await getRejectedAlertRecipientPhones();
+        if (!phones || phones.length === 0) {
+            console.warn(`[RejectedQueue] No hay números configurados para alertas; no se envía la alerta ${item.key}.`);
+            return;
+        }
+        for (let i = 0; i < phones.length; i++) {
+            const phone = phones[i];
+            try {
+                await sendZendyMessage(phone, item.text);
+                console.log(`[RejectedNotifier] Alerta ${item.key} enviada a ${phone}`);
+            } catch (sendErr) {
+                console.warn(`[RejectedNotifier] Error vía Zendy a ${phone} (${item.key}):`, sendErr.message);
+                try {
+                    await sendMessage(getTextMessageInput(phone, item.text));
+                    console.log(`[RejectedNotifier] Alerta ${item.key} enviada vía WhatsApp oficial a ${phone}`);
+                } catch (fallbackErr) {
+                    console.error(`[RejectedNotifier] Fallback falló a ${phone} (${item.key}):`, fallbackErr.message);
+                }
+            }
+            if (i < phones.length - 1) {
+                await new Promise((resolve) => setTimeout(resolve, 2000));
+            }
+        }
+        if (this.queue.length > 0) {
+            await new Promise((resolve) => setTimeout(resolve, this.intervalMs));
+        }
+    }
+
+    /**
      * Procesa la cola secuencialmente con pausas de 1 minuto entre comprobantes rechazados.
      */
     async processQueue() {
@@ -273,6 +329,7 @@ class RejectedNotificationQueue {
      * y con la pausa obligatoria de 1 minuto (60s) entre envíos.
      */
     async dispatchItem(item) {
+        if (item.kind === 'text') return this.dispatchText(item);
         const phones = await getRejectedAlertRecipientPhones();
         if (!phones || phones.length === 0) {
             console.warn('[RejectedQueue] No hay números configurados para alertas de comprobantes rechazados.');
@@ -425,6 +482,18 @@ function enqueueRejectedDocument({ tenant, id_document, doc = null, company = nu
 }
 
 /**
+ * Alerta de texto libre por WhatsApp a los celulares de rechazados, respetando la cola anti-spam (60s).
+ * Usada por la Tarea 5 para avisar resúmenes diarios rechazados por SUNAT.
+ */
+function enqueueTextAlert({ key, text }) {
+    try {
+        rejectedQueue.enqueueText({ key, text });
+    } catch (err) {
+        console.error('[enqueueTextAlert] Error:', err.message);
+    }
+}
+
+/**
  * Barredor periódico (para Tarea 8):
  * Revisa comprobantes rechazados recientes que no se hayan notificado y los encola.
  */
@@ -458,6 +527,7 @@ module.exports = {
     formatRejectedAlert,
     getUnnotifiedRejectedDocuments,
     enqueueRejectedDocument,
+    enqueueTextAlert,
     notifyPendingRejectedDocuments,
     isVoucherExpired,
     rejectedQueue

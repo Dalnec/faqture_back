@@ -5,6 +5,7 @@ const { resetTicketSingleShipment } = require('./connection');
 const { notifyError } = require('./logger');
 const { parseJsonField } = require('./json.libs');
 const { revertOriginalsOfRejectedCreditNotes } = require('./creditNotes.libs');
+const { classifySummaryStatus, applySummaryStatus, reconcileDateWithPro, recordSummaryRejection, shouldSkipResend } = require('./summaryReconcile.libs');
 
 /**
  * Valida formato de fecha ISO YYYY-MM-DD.
@@ -171,7 +172,7 @@ const sendDailySummaryForDate = async (company, date) => {
  * Consulta el estado del ticket del resumen diario en el PRO.
  * Endpoint: POST /api/summaries/status
  */
-const consultSummaryTicket = async (company, ticket) => {
+const consultSummaryTicket = async (company, ticket, externalId = null) => {
     try {
         const baseUrl = normalizeBaseUrl(company?.url);
         if (!baseUrl || !company?.token || !ticket) {
@@ -180,6 +181,7 @@ const consultSummaryTicket = async (company, ticket) => {
 
         const api = new ApiClient(`${baseUrl}/api/summaries/status`, company.token);
         const payload = { ticket: String(ticket).trim() };
+        if (externalId) payload.external_id = String(externalId).trim();
         const response = await api.sendDocument(payload);
         return response;
     } catch (error) {
@@ -232,7 +234,7 @@ const updateBoletasAcceptedForDate = async (tenant, date, effectiveBoletaTypes, 
  * el resumen diario queda en proceso en SUNAT (código 98 o pendiente).
  * NUNCA afecta comprobantes en 'N' (no enviados), 'X' (error de envío), 'P'/'C' (anulación) ni 'E' (ya enviados).
  */
-const updateBoletasPendingTicketForDate = async (tenant, date, effectiveBoletaTypes, ticket) => {
+const updateBoletasPendingTicketForDate = async (tenant, date, effectiveBoletaTypes, ticket, summaryExternalId = null) => {
     try {
         if (!tenant || !isValidIsoDate(date) || !effectiveBoletaTypes || effectiveBoletaTypes.length === 0 || !ticket) return 0;
 
@@ -242,6 +244,7 @@ const updateBoletasPendingTicketForDate = async (tenant, date, effectiveBoletaTy
             state: 'Y',
             message: `Ticket de resumen ${ticket} en proceso en SUNAT para fecha ${date}`,
             summary_ticket: ticket,
+            summary_external_id: summaryExternalId || null,
             state_type_id: '01',
             state_type_description: 'En proceso',
             sent_at: new Date().toISOString(),
@@ -315,23 +318,29 @@ const updateBoletasRejectedForDate = async (tenant, date, effectiveBoletaTypes, 
  * Consulta todos los tickets de resúmenes diarios pendientes (states = 'Y') de una empresa.
  * Si SUNAT ya los aceptó (05) o rechazó (09), actualiza los comprobantes correspondientes a 'E' o 'R'.
  */
+/** Tiempo máximo que se espera un ticket sin resultado definitivo antes de permitir reenviar el resumen de su fecha. */
+const PENDING_TICKET_MAX_AGE_MS = 24 * 60 * 60 * 1000;
+
 const consultPendingSummaryTicketsForCompany = async (company, effectiveBoletaTypes) => {
+    // Devuelve también las fechas cuyo ticket sigue en proceso, para no reenviar su resumen en esta corrida.
+    const out = { regularized: 0, pendingTicketDates: new Set() };
     try {
-        if (!company?.tenant || !company?.url || !company?.token) return 0;
-        if (!effectiveBoletaTypes || effectiveBoletaTypes.length === 0) return 0;
+        if (!company?.tenant || !/^[a-zA-Z0-9_]+$/.test(company.tenant) || !company?.url || !company?.token) return out;
+        if (!effectiveBoletaTypes || effectiveBoletaTypes.length === 0) return out;
 
         const typeClause = buildBoletaFamilyClause(effectiveBoletaTypes);
+        // Antes: ORDER BY id_document DESC LIMIT 100 dejaba fuera las fechas más antiguas en empresas con muchas boletas pendientes.
         const query = `
             SELECT id_document, TO_CHAR(date::DATE, 'YYYY-MM-DD') as emission_date, response_send
             FROM ${company.tenant}.document
             WHERE states = 'Y'
               AND ${typeClause}
               AND response_send IS NOT NULL
-            ORDER BY id_document DESC
-            LIMIT 100;
+            ORDER BY date ASC, id_document ASC
+            LIMIT 5000;
         `;
         const { rows } = await pool.query(query);
-        if (!rows || rows.length === 0) return 0;
+        if (!rows || rows.length === 0) return out;
 
         // Agrupar por ticket único y fecha
         const ticketsMap = new Map();
@@ -340,29 +349,37 @@ const consultPendingSummaryTicketsForCompany = async (company, effectiveBoletaTy
             const ticket = resp?.summary_ticket || resp?.data?.ticket;
             const emissionDate = row.emission_date;
             if (ticket && emissionDate && !ticketsMap.has(ticket)) {
-                ticketsMap.set(ticket, { ticket, date: emissionDate });
+                // Rechazo de este ticket ya registrado: no se vuelve a consultar.
+                if (resp?.summary_rejection?.ticket === ticket) continue;
+                ticketsMap.set(ticket, { ticket, date: emissionDate, externalId: resp?.summary_external_id || null, sentAt: resp?.sent_at || null });
             }
         }
 
-        let regularizedTotal = 0;
-        for (const { ticket, date } of ticketsMap.values()) {
-            const resTicket = await consultSummaryTicket(company, ticket);
-            const stateTypeId = resTicket?.data?.state_type_id;
-
-            if (resTicket?.success && stateTypeId === '05') {
-                const count = await updateBoletasAcceptedForDate(company.tenant, date, effectiveBoletaTypes, resTicket);
-                regularizedTotal += count;
-                console.log(`[Summary Libs] ${company.tenant} Ticket pendiente ${ticket} para ${date} ACEPTADO en SUNAT. ${count} comprobantes regularizados a 'E'.`);
-            } else if (stateTypeId === '09') {
-                const count = await updateBoletasRejectedForDate(company.tenant, date, effectiveBoletaTypes, resTicket);
-                console.warn(`[Summary Libs] ${company.tenant} Ticket pendiente ${ticket} para ${date} RECHAZADO por SUNAT. ${count} comprobantes marcados como 'R'.`);
+        for (const { ticket, date, externalId, sentAt } of ticketsMap.values()) {
+            const resTicket = await consultSummaryTicket(company, ticket, externalId);
+            // El PRO no devuelve data.state_type_id: la respuesta se interpreta con classifySummaryStatus
+            // (antes se exigía state_type_id === '05' y nunca se detectaba un resumen aceptado).
+            const cls = classifySummaryStatus(resTicket);
+            if (cls.status === 'pending' || cls.status === 'error') {
+                // Sin resultado definitivo (en proceso, error temporal de SUNAT o respuesta no reconocida):
+                // no se reenvía la fecha mientras el ticket sea reciente, para no pisar el ticket anterior
+                // con uno nuevo. Pasado PENDING_TICKET_MAX_AGE_MS (o sin sent_at) se permite reenviar,
+                // para que un ticket que nunca se resuelve no deje la fecha bloqueada hasta vencer el plazo.
+                const ageMs = sentAt ? Date.now() - new Date(sentAt).getTime() : NaN;
+                if (!Number.isNaN(ageMs) && ageMs < PENDING_TICKET_MAX_AGE_MS) {
+                    out.pendingTicketDates.add(date);
+                } else {
+                    console.warn(`[Summary Libs] ${company.tenant} ticket ${ticket} (${date}) sin resultado definitivo desde ${sentAt || 'fecha desconocida'} (${cls.status}${cls.code ? ', código ' + cls.code : ''}). Se permite reenviar el resumen.`);
+                }
             }
+            const r = await applySummaryStatus(company, date, effectiveBoletaTypes, ticket, cls);
+            out.regularized += r.regularized;
         }
 
-        return regularizedTotal;
+        return out;
     } catch (error) {
         console.error(`[Summary Libs] Error consultando tickets pendientes en ${company.tenant}:`, error.message);
-        return 0;
+        return out;
     }
 };
 
@@ -408,9 +425,19 @@ const processSummariesAndPendingForCompany = async (company, options = {}) => {
         const effectiveFacturaTypes = filterTypes(docTypes, ['01', '07', '08']);
 
         // ─── FASE 1: Consultar Tickets de Resúmenes Pendientes ('Y') ───
+        let pendingTicketDates = new Set();
         if (effectiveBoletaTypes && effectiveBoletaTypes.length > 0) {
-            const regularizedFromTickets = await consultPendingSummaryTicketsForCompany(company, effectiveBoletaTypes);
-            summaryStats.boletasRegularized += regularizedFromTickets;
+            const resTickets = await consultPendingSummaryTicketsForCompany(company, effectiveBoletaTypes);
+            summaryStats.boletasRegularized += resTickets.regularized;
+            pendingTicketDates = resTickets.pendingTicketDates;
+
+            // Conciliación: boletas 'Y' que el PRO ya tiene ACEPTADAS (individualmente o por un resumen que Faqture
+            // no llegó a consultar) pasan a 'E'. Evita reenviar resúmenes que SUNAT rechazaría con 2282.
+            const yDates = await getPendingBoletaDates(company.tenant, effectiveBoletaTypes, options?.maxDaysBack || 45);
+            for (const date of yDates) {
+                const r = await reconcileDateWithPro(company, date, effectiveBoletaTypes, { reason: 'conciliación previa al resumen' });
+                summaryStats.boletasRegularized += r.regularized;
+            }
         }
 
         // ─── FASE 2: Procesar Nuevos Resúmenes Diarios de Boletas por Fecha ───
@@ -436,6 +463,14 @@ const processSummariesAndPendingForCompany = async (company, options = {}) => {
                 console.log(`[Summary Libs] ${company.tenant} procesando resúmenes (${effectiveBoletaTypes.join(',')}) en ${datesToProcess.length} fechas:`, datesToProcess);
 
                 for (const date of datesToProcess) {
+                    // No reenviar si el ticket sigue en proceso o si la fecha está bloqueada por un rechazo previo
+                    // (evita el ciclo de resúmenes idénticos rechazados cada 8 horas).
+                    const skip = await shouldSkipResend(company, date, effectiveBoletaTypes, pendingTicketDates);
+                    if (skip.skip) {
+                        console.log(`[Summary Libs] ${company.tenant} ${date}: no se reenvía resumen (${skip.reason}).`);
+                        continue;
+                    }
+
                     summaryStats.datesProcessed++;
                     const resSummary = await sendDailySummaryForDate(company, date);
                     
@@ -445,24 +480,22 @@ const processSummariesAndPendingForCompany = async (company, options = {}) => {
                         const ticket = resSummary.data.ticket;
                         console.log(`[Summary Libs] ${company.tenant} Resumen enviado para ${date}. Ticket: ${ticket}`);
 
-                        // Intentar consultar el ticket inmediatamente
-                        const resTicket = await consultSummaryTicket(company, ticket);
-                        const stateTypeId = resTicket?.data?.state_type_id;
+                        const summaryExternalId = resSummary.data.external_id || null;
 
-                        if (resTicket?.success && stateTypeId === '05') {
-                            // Estado 05: Aceptado
-                            summaryStats.summariesAccepted++;
-                            const updatedCount = await updateBoletasAcceptedForDate(company.tenant, date, effectiveBoletaTypes, resTicket);
-                            summaryStats.boletasRegularized += updatedCount;
-                            console.log(`[Summary Libs] ${company.tenant} Resumen ${ticket} ACEPTADO en SUNAT para ${date}. ${updatedCount} comprobantes actualizados a 'E'`);
-                        } else if (stateTypeId === '09') {
-                            // Estado 09: Rechazado por SUNAT (ej. fuera de plazo)
-                            const rejectedCount = await updateBoletasRejectedForDate(company.tenant, date, effectiveBoletaTypes, resTicket);
-                            console.warn(`[Summary Libs] ${company.tenant} Resumen ${ticket} RECHAZADO por SUNAT para ${date}. ${rejectedCount} comprobantes marcados como 'R'`);
+                        // Intentar consultar el ticket inmediatamente
+                        const resTicket = await consultSummaryTicket(company, ticket, summaryExternalId);
+                        const cls = classifySummaryStatus(resTicket);
+
+                        if (cls.status === 'accepted' || cls.status === 'rejected') {
+                            // Aceptado: solo pasan a 'E' las boletas que el PRO confirma en '05'.
+                            // Rechazado: se registra y notifica; las boletas siguen en 'Y' (no se marca 'R' a todo el lote).
+                            if (cls.status === 'accepted') summaryStats.summariesAccepted++;
+                            const r = await applySummaryStatus(company, date, effectiveBoletaTypes, ticket, cls);
+                            summaryStats.boletasRegularized += r.regularized;
                         } else {
-                            // En proceso (código 98 o pendiente): registrar ticket para consulta posterior
-                            await updateBoletasPendingTicketForDate(company.tenant, date, effectiveBoletaTypes, ticket);
-                            console.log(`[Summary Libs] ${company.tenant} Ticket ${ticket} en proceso en SUNAT (código ${stateTypeId || 'PENDIENTE'}). Guardado en BD para consulta.`);
+                            // En proceso (código 98), error temporal o respuesta no reconocida: registrar ticket para consulta posterior
+                            await updateBoletasPendingTicketForDate(company.tenant, date, effectiveBoletaTypes, ticket, summaryExternalId);
+                            console.log(`[Summary Libs] ${company.tenant} Ticket ${ticket} sin resultado definitivo (${cls.status}${cls.code ? ', código ' + cls.code : ''}). Guardado en BD para consulta.`);
                         }
                     } 
                     // Caso B: El PRO responde que ya se encuentra registrado o ya existe resumen
@@ -471,8 +504,9 @@ const processSummariesAndPendingForCompany = async (company, options = {}) => {
                         String(resSummary.message).toLowerCase().includes('ya fue enviado') ||
                         String(resSummary.message).toLowerCase().includes('ya existe')
                     )) {
-                        const updatedCount = await updateBoletasAcceptedForDate(company.tenant, date, effectiveBoletaTypes, resSummary);
-                        summaryStats.boletasRegularized += updatedCount;
+                        // Antes marcaba 'E' a TODAS las boletas 'Y' de la fecha; ahora solo las que el PRO tiene en '05'.
+                        const r = await reconcileDateWithPro(company, date, effectiveBoletaTypes, { reason: `PRO: ${String(resSummary.message).slice(0, 80)}` });
+                        summaryStats.boletasRegularized += r.regularized;
                     }
                     // Caso C: Rechazo directo del PRO o SUNAT (ej. fuera de plazo)
                     else if (resSummary?.message && (
@@ -480,8 +514,10 @@ const processSummariesAndPendingForCompany = async (company, options = {}) => {
                         String(resSummary.message).toLowerCase().includes('plazo') ||
                         String(resSummary.message).toLowerCase().includes('no permitido')
                     )) {
-                        const rejectedCount = await updateBoletasRejectedForDate(company.tenant, date, effectiveBoletaTypes, resSummary);
-                        console.warn(`[Summary Libs] ${company.tenant} Resumen para ${date} rechazado: ${resSummary.message}. ${rejectedCount} comprobantes marcados como 'R'`);
+                        // Antes marcaba 'R' a TODAS las boletas 'Y' de la fecha; ahora registra el rechazo y notifica sin cambiar estado.
+                        const cls = classifySummaryStatus(resSummary);
+                        await recordSummaryRejection(company, date, effectiveBoletaTypes, null, { ...cls, code: cls.code || 'PRO' });
+                        console.warn(`[Summary Libs] ${company.tenant} Resumen para ${date} rechazado: ${resSummary.message}. Las boletas siguen en 'Y' (no se marca 'R').`);
                     }
                 }
             }
@@ -601,6 +637,7 @@ module.exports = {
     normalizeBaseUrl,
     filterTypes,
     buildSqlInClause,
+    buildBoletaFamilyClause,
     isFacturaOrNoteOfFactura,
     isBoletaOrNoteOfBoleta,
     getPendingBoletaDates,
