@@ -244,4 +244,49 @@ const resetTicketSingleShipment = async (url = '') => {
     }
 };
 
-module.exports = { update_doc_api, checkConnection, listReportDocuments, resetTicketSingleShipment };
+/**
+ * Tarea 5 - Parte 2: marca como ACEPTADO ('05') en el PRO boletas que SUNAT ya tiene aceptadas
+ * (reportadas como "ya informadas" en un rechazo 2282) y que el PRO sigue mostrando como '01'/'03'.
+ * Mientras sigan en '01', el PRO las vuelve a incluir en cada resumen y SUNAT rechaza toda la fecha.
+ *
+ * Seguridad: el llamador SOLO debe enviar comprobantes que SUNAT confirmó como ACEPTADOS.
+ * Cada UPDATE es parametrizado, afecta como máximo 1 fila (LIMIT 1) y solo si sigue en '01'/'03'.
+ * La conexión SSH/MySQL se cierra siempre en finally.
+ *
+ * @param {string} url   URL del PRO de la empresa
+ * @param {Array<{document_type_id: string, series: string, number: number}>} docs
+ * @returns {Promise<{success: boolean, message?: string, results: Array<{key: string, affectedRows?: number, error?: string}>}>}
+ */
+const setBoletasAcceptedInPro = async (url = '', docs = []) => {
+    const valid = (Array.isArray(docs) ? docs : []).filter(d =>
+        ['03', '07', '08'].includes(String(d?.document_type_id)) &&
+        /^[A-Z0-9]{1,4}$/.test(String(d?.series || '')) &&
+        Number.isInteger(Number(d?.number)) && Number(d.number) > 0
+    );
+    if (!url || valid.length === 0) return { success: false, message: 'Sin URL o sin comprobantes válidos', results: [] };
+
+    let conn;
+    try {
+        conn = await create_mysql_connection(url);
+        const results = [];
+        for (const d of valid) {
+            const key = `${d.series}-${Number(d.number)}`;
+            const r = await new Promise((resolve) => {
+                conn.query(
+                    "UPDATE documents SET state_type_id = '05' WHERE document_type_id = ? AND series = ? AND number = ? AND state_type_id IN ('01', '03') LIMIT 1",
+                    [String(d.document_type_id), String(d.series), Number(d.number)],
+                    (error, result) => resolve(error ? { key, error: error.message } : { key, affectedRows: result?.affectedRows || 0 })
+                );
+            });
+            results.push(r);
+        }
+        return { success: true, results };
+    } catch (err) {
+        console.warn(`[setBoletasAcceptedInPro] No se pudo conectar a MySQL para ${url}:`, err.message);
+        return { success: false, message: err.message, results: [] };
+    } finally {
+        if (conn) { try { conn.end(); } catch (e) {} }
+    }
+};
+
+module.exports = { update_doc_api, checkConnection, listReportDocuments, resetTicketSingleShipment, setBoletasAcceptedInPro };
