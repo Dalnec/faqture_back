@@ -318,6 +318,9 @@ const updateBoletasRejectedForDate = async (tenant, date, effectiveBoletaTypes, 
  * Consulta todos los tickets de resúmenes diarios pendientes (states = 'Y') de una empresa.
  * Si SUNAT ya los aceptó (05) o rechazó (09), actualiza los comprobantes correspondientes a 'E' o 'R'.
  */
+/** Tiempo máximo que se espera un ticket sin resultado definitivo antes de permitir reenviar el resumen de su fecha. */
+const PENDING_TICKET_MAX_AGE_MS = 24 * 60 * 60 * 1000;
+
 const consultPendingSummaryTicketsForCompany = async (company, effectiveBoletaTypes) => {
     // Devuelve también las fechas cuyo ticket sigue en proceso, para no reenviar su resumen en esta corrida.
     const out = { regularized: 0, pendingTicketDates: new Set() };
@@ -348,16 +351,27 @@ const consultPendingSummaryTicketsForCompany = async (company, effectiveBoletaTy
             if (ticket && emissionDate && !ticketsMap.has(ticket)) {
                 // Rechazo de este ticket ya registrado: no se vuelve a consultar.
                 if (resp?.summary_rejection?.ticket === ticket) continue;
-                ticketsMap.set(ticket, { ticket, date: emissionDate, externalId: resp?.summary_external_id || null });
+                ticketsMap.set(ticket, { ticket, date: emissionDate, externalId: resp?.summary_external_id || null, sentAt: resp?.sent_at || null });
             }
         }
 
-        for (const { ticket, date, externalId } of ticketsMap.values()) {
+        for (const { ticket, date, externalId, sentAt } of ticketsMap.values()) {
             const resTicket = await consultSummaryTicket(company, ticket, externalId);
             // El PRO no devuelve data.state_type_id: la respuesta se interpreta con classifySummaryStatus
             // (antes se exigía state_type_id === '05' y nunca se detectaba un resumen aceptado).
             const cls = classifySummaryStatus(resTicket);
-            if (cls.status === 'pending') out.pendingTicketDates.add(date);
+            if (cls.status === 'pending' || cls.status === 'error') {
+                // Sin resultado definitivo (en proceso, error temporal de SUNAT o respuesta no reconocida):
+                // no se reenvía la fecha mientras el ticket sea reciente, para no pisar el ticket anterior
+                // con uno nuevo. Pasado PENDING_TICKET_MAX_AGE_MS (o sin sent_at) se permite reenviar,
+                // para que un ticket que nunca se resuelve no deje la fecha bloqueada hasta vencer el plazo.
+                const ageMs = sentAt ? Date.now() - new Date(sentAt).getTime() : NaN;
+                if (!Number.isNaN(ageMs) && ageMs < PENDING_TICKET_MAX_AGE_MS) {
+                    out.pendingTicketDates.add(date);
+                } else {
+                    console.warn(`[Summary Libs] ${company.tenant} ticket ${ticket} (${date}) sin resultado definitivo desde ${sentAt || 'fecha desconocida'} (${cls.status}${cls.code ? ', código ' + cls.code : ''}). Se permite reenviar el resumen.`);
+                }
+            }
             const r = await applySummaryStatus(company, date, effectiveBoletaTypes, ticket, cls);
             out.regularized += r.regularized;
         }

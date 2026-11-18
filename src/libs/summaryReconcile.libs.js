@@ -258,12 +258,70 @@ const reconcileDateWithPro = async (company, date, effectiveBoletaTypes, context
     }
 };
 
+/** Máximo de boletas por fecha que se consultan en SUNAT al buscar bloqueantes de un 2282 (acota la duración de la tarea). */
+const MAX_BLOCKER_CANDIDATES = 50;
+
+/**
+ * SUNAT informa en el 2282 SOLO UNA boleta "ya informada" por rechazo, aunque haya varias en la misma situación
+ * (verificado en producción: fecha con 18 boletas "Por regularizar" y el 2282 nombra solo una). Resolverlas una por una
+ * cuesta un ciclo de 8 h por boleta y la fecha puede vencer.
+ * Esta función arma la lista de SOSPECHOSAS: las que nombra SUNAT + las boletas de la fecha que el PRO tiene en
+ * '01'/'03' con marca "Por regularizar" (envío individual con error) o en '03' (Enviado sin CDR).
+ * Son solo candidatas a CONSULTAR en SUNAT: nada se modifica sin que SUNAT confirme que están ACEPTADAS.
+ */
+const collectBlockerCandidates = (proDocs, informedDocs) => {
+    const keys = new Set(Array.isArray(informedDocs) ? informedDocs : []);
+    if (!proDocs) return [...keys];
+    for (const [key, el] of proDocs) {
+        if (keys.size >= MAX_BLOCKER_CANDIDATES) break;
+        if (!key.startsWith('B')) continue;
+        if (!['03', '07', '08'].includes(String(el?.document_type_id))) continue;
+        const st = String(el?.state_type_id);
+        if (!['01', '03'].includes(st)) continue;
+        const flagged = el?.regularize_shipping === true || (typeof el?.message_regularize_shipping === 'string' && el.message_regularize_shipping.trim() !== '');
+        if (!flagged && st !== '03') continue;
+        keys.add(key);
+    }
+    return [...keys];
+};
+
+/**
+ * Consulta de validez en SUNAT de un comprobante. Devuelve true solo si SUNAT responde ACEPTADO (estadoCp 1/3).
+ * `cache` (Map por clave SERIE-NUM) evita consultar dos veces el mismo comprobante en un mismo rechazo.
+ * Lanza error si SUNAT no responde (quien llama no debe cambiar nada en ese caso).
+ */
+const isAcceptedOnSunat = async (company, date, doc, cache = null) => {
+    const key = docKey(doc.serie, doc.numero);
+    if (cache && key && cache.has(key)) {
+        const c = cache.get(key);
+        if (c.error) throw new Error(c.error);
+        return c;
+    }
+    try {
+        const sunat = await validateVoucherOnSunat({
+            ruc: company.company_number,
+            codigoComp: String(doc.type).trim(),
+            serie: String(doc.serie).trim(),
+            numero: String(doc.numero).trim(),
+            fechaEmision: formatDateForSunat(date),
+            monto: Number(Number(doc.amount || 0).toFixed(2)),
+        });
+        const estadoCp = String(sunat?.data?.estadoCp ?? '');
+        const res = { accepted: estadoCp === '1' || estadoCp === '3', estadoCp };
+        if (cache && key) cache.set(key, res);
+        return res;
+    } catch (error) {
+        if (cache && key) cache.set(key, { error: error.message });
+        throw error;
+    }
+};
+
 /**
  * Para un rechazo 2282 ("documento ya informado"), confirma en SUNAT (consulta de validez) cada comprobante
  * reportado como ya informado que esté en 'Y' en Faqture. Solo si SUNAT responde ACEPTADO (estadoCp 1/3) se pasa a 'E'.
  * Si la consulta SUNAT no está disponible, no se cambia nada.
  */
-const confirmInformedDocsOnSunat = async (company, date, effectiveBoletaTypes, informedDocs) => {
+const confirmInformedDocsOnSunat = async (company, date, effectiveBoletaTypes, informedDocs, sunatCache = null) => {
     let confirmed = 0;
     if (!Array.isArray(informedDocs) || informedDocs.length === 0 || !company?.company_number) return confirmed;
     const yRows = await selectYBoletasForDate(company.tenant, date, effectiveBoletaTypes);
@@ -272,16 +330,8 @@ const confirmInformedDocsOnSunat = async (company, date, effectiveBoletaTypes, i
         const key = docKey(row.serie, row.numero);
         if (!key || !wanted.has(key)) continue;
         try {
-            const sunat = await validateVoucherOnSunat({
-                ruc: company.company_number,
-                codigoComp: String(row.type).trim(),
-                serie: String(row.serie).trim(),
-                numero: String(row.numero).trim(),
-                fechaEmision: formatDateForSunat(date),
-                monto: Number(Number(row.amount || 0).toFixed(2)),
-            });
-            const estadoCp = String(sunat?.data?.estadoCp ?? '');
-            if (estadoCp === '1' || estadoCp === '3') {
+            const { accepted } = await isAcceptedOnSunat(company, date, row, sunatCache);
+            if (accepted) {
                 const ok = await mergeResponseSend(company.tenant, row, {
                     success: true,
                     state: 'E',
@@ -308,7 +358,11 @@ const confirmInformedDocsOnSunat = async (company, date, effectiveBoletaTypes, i
  *      Modo 'report': no se escribe nada; se informa qué se haría.
  * @returns {{ mode: string, regularized: string[], wouldRegularize: string[], skipped: Array<{doc: string, reason: string}> }}
  */
-const regularizeBlockersInPro = async (company, date, informedDocs) => {
+const regularizeBlockersInPro = async (company, date, informedDocs, sunatCache = null, namedDocs = null) => {
+    // namedDocs: las que SUNAT nombró en el 2282. Las demás son candidatas extra: si SUNAT no las tiene ACEPTADAS
+    // es lo esperado (van en el resumen), así que no se listan como "no regularizadas" en la alerta.
+    const named = namedDocs ? new Set(namedDocs) : null;
+    const isExtra = (k) => named !== null && !named.has(k);
     const mode = await getProRegularizeMode();
     const out = { mode, regularized: [], wouldRegularize: [], skipped: [] };
     if (mode === 'off' || !Array.isArray(informedDocs) || informedDocs.length === 0) return out;
@@ -343,19 +397,11 @@ const regularizeBlockersInPro = async (company, date, informedDocs) => {
             const fq = faqtureByKey.get(key);
             if (!fq) { out.skipped.push({ doc: key, reason: 'no se encontró en Faqture para validar en SUNAT' }); continue; }
             try {
-                const sunat = await validateVoucherOnSunat({
-                    ruc: company.company_number,
-                    codigoComp: String(fq.type).trim(),
-                    serie: String(fq.serie).trim(),
-                    numero: String(fq.numero).trim(),
-                    fechaEmision: formatDateForSunat(date),
-                    monto: Number(Number(fq.amount || 0).toFixed(2)),
-                });
-                const estadoCp = String(sunat?.data?.estadoCp ?? '');
-                if (estadoCp === '1' || estadoCp === '3') {
+                const { accepted, estadoCp } = await isAcceptedOnSunat(company, date, fq, sunatCache);
+                if (accepted) {
                     const [series, number] = key.split('-');
                     candidates.push({ key, document_type_id: String(fq.type).trim(), series, number: Number(number) });
-                } else {
+                } else if (!isExtra(key)) {
                     out.skipped.push({ doc: key, reason: `SUNAT no la muestra ACEPTADA (estadoCp ${estadoCp || '?'})` });
                 }
             } catch (error) {
@@ -405,15 +451,20 @@ const recordSummaryRejection = async (company, date, effectiveBoletaTypes, ticke
         const yRows = await selectYBoletasForDate(company.tenant, date, effectiveBoletaTypes);
         if (yRows.length === 0) return 0;
 
+        const rejectionMessage = String(cls.message || '').slice(0, 500);
+        // Con ticket: una alerta por ticket. Sin ticket (rechazo directo del PRO, ej. fuera de plazo): una alerta
+        // por mismo código + mensaje, para no repetir el aviso en cada reintento de 24 h.
         const alreadyRecorded = yRows.some(r => {
             const prev = parseJsonField(r.response_send, {})?.summary_rejection;
-            return prev && ticket && prev.ticket === ticket;
+            if (!prev) return false;
+            if (ticket) return prev.ticket === ticket;
+            return !prev.ticket && prev.code === cls.code && prev.message === rejectionMessage;
         });
 
         const rejection = {
             ticket: ticket || null,
             code: cls.code,
-            message: String(cls.message || '').slice(0, 500),
+            message: rejectionMessage,
             informed_docs: cls.informedDocs || [],
             at: new Date().toISOString(),
         };
@@ -428,6 +479,8 @@ const recordSummaryRejection = async (company, date, effectiveBoletaTypes, ticke
                 accion = 'Revisar el motivo del rechazo; las boletas siguen pendientes (Y) y la tarea reintentará en 24 h.';
             } else if (proReg && proReg.mode === 'on' && proReg.regularized.length > 0 && proReg.skipped.length === 0) {
                 accion = `Regularizadas automáticamente en el PRO: ${proReg.regularized.join(', ')}. La tarea reenvía el resumen de la fecha en este mismo ciclo.`;
+            } else if (proReg && proReg.mode === 'on' && proReg.regularized.length > 0) {
+                accion = `Regularizadas automáticamente en el PRO: ${proReg.regularized.join(', ')}. Revisar las no regularizadas (abajo); la tarea las volverá a revisar en el próximo ciclo.`;
             } else if (proReg && proReg.mode === 'report' && proReg.wouldRegularize.length > 0) {
                 accion = `[Modo report] Regularizar en el PRO (Reportes > Validar documentos > Regularizar): ${proReg.wouldRegularize.join(', ')} (SUNAT las confirma ACEPTADAS). Luego la tarea reenviará el resumen.`;
             } else {
@@ -555,12 +608,26 @@ const applySummaryStatus = async (company, date, effectiveBoletaTypes, ticket, c
     if (cls.status === 'rejected') {
         let confirmed = 0;
         let proReg = null;
+        let recordCls = cls;
         if (cls.code === '2282') {
-            confirmed = await confirmInformedDocsOnSunat(company, date, effectiveBoletaTypes, cls.informedDocs);
+            // SUNAT nombra solo una boleta por rechazo: se revisan también las demás sospechosas de la fecha
+            // (en el PRO "Por regularizar"), para resolver la fecha en un solo ciclo y no una boleta cada 8 h.
+            const proDocs = await getProDocsByDate(company, date);
+            const candidates = collectBlockerCandidates(proDocs, cls.informedDocs);
+            const sunatCache = new Map();
+            confirmed = await confirmInformedDocsOnSunat(company, date, effectiveBoletaTypes, candidates, sunatCache);
             // Parte 2: sacar del resumen las boletas que SUNAT ya tiene (marcarlas '05' en el PRO), según el modo configurado.
-            proReg = await regularizeBlockersInPro(company, date, cls.informedDocs);
+            proReg = await regularizeBlockersInPro(company, date, candidates, sunatCache, cls.informedDocs);
+            // Bloqueantes = las que nombró SUNAT + las que SUNAT confirmó ACEPTADAS. Se guardan para no reenviar el
+            // resumen hasta que TODAS estén regularizadas en el PRO (si no, el PRO las incluiría y vendría otro 2282).
+            const acceptedExtras = candidates.filter(k => sunatCache.get(k)?.accepted === true);
+            const blockers = [...new Set([...(cls.informedDocs || []), ...acceptedExtras])];
+            recordCls = { ...cls, informedDocs: blockers };
+            if (candidates.length > (cls.informedDocs || []).length) {
+                console.log(`[Summary Reconcile] ${company.tenant} ${date}: 2282 nombra ${(cls.informedDocs || []).join(', ')}; revisadas ${candidates.length} sospechosas, ${blockers.length} bloqueantes confirmadas.`);
+            }
         }
-        await recordSummaryRejection(company, date, effectiveBoletaTypes, ticket, cls, proReg);
+        await recordSummaryRejection(company, date, effectiveBoletaTypes, ticket, recordCls, proReg);
         console.warn(`[Summary Reconcile] ${company.tenant} ticket ${ticket} (${date}) RECHAZADO (código ${cls.code}). ${confirmed} ya informadas confirmadas en SUNAT y pasadas a 'E'. El resto sigue en 'Y' (no se marca 'R').`);
         return { regularized: confirmed };
     }
@@ -575,6 +642,7 @@ module.exports = {
     getProDocsByDate,
     selectYBoletasForDate,
     reconcileDateWithPro,
+    collectBlockerCandidates,
     confirmInformedDocsOnSunat,
     regularizeBlockersInPro,
     getProRegularizeMode,
