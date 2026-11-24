@@ -23,7 +23,7 @@ const { ApiClient } = require('./api.libs');
 const { notifyError } = require('./logger');
 const { parseJsonField } = require('./json.libs');
 const { validateVoucherOnSunat, formatDateForSunat } = require('./sunatValidation.libs');
-const { setBoletasAcceptedInPro } = require('./connection');
+const { setBoletasAcceptedInPro, getFlaggedBoletasFromPro } = require('./connection');
 
 /**
  * Interruptor de la Parte 2 (regularizar en el PRO las boletas que bloquean un resumen con 2282).
@@ -442,6 +442,134 @@ const regularizeBlockersInPro = async (company, date, informedDocs, sunatCache =
 };
 
 /**
+ * Máximo de boletas "Por regularizar" que se consultan en SUNAT por empresa y por ciclo (acota la duración de la tarea).
+ * Igual al límite de getFlaggedBoletasFromPro (200): las NO aceptadas siguen marcadas hasta que el resumen se acepta y se
+ * revisan primero en cada ciclo; un tope menor podría dejar fuera de alcance a una bloqueante (verificado: baruj tuvo 49 en un día).
+ */
+const MAX_PREVENTIVE_CHECKS = 200;
+
+/**
+ * Registro de auditoría en system_logs con nivel 'info' (visible en el módulo de logs como "Información").
+ * No usa notifyError: no es un error y no debe disparar Telegram/Discord ni el contador de errores del front.
+ */
+const logReconcileInfo = (tenant, type, payload) => {
+    pool.query(
+        `INSERT INTO public.system_logs (tenant, level, message, meta) VALUES ($1, 'info', $2, $3)`,
+        [tenant || 'system', type, JSON.stringify({ type, payload })]
+    ).catch(err => console.warn('[Summary Reconcile] No se pudo registrar el log informativo:', err.message));
+};
+
+/**
+ * PREVENCIÓN DEL 2282 (antes de enviar los resúmenes de la empresa).
+ *
+ * Causa verificada en producción (nov-2026): con "Enviar boletas de forma individual" activo, el PRO envía cada boleta a
+ * SUNAT; si la respuesta falla (ej. "HTTP - Error Fetching http headers") la deja en '01' con regularize_shipping = 1
+ * ("Por regularizar"), aunque SUNAT muchas veces SÍ la aceptó. resetTicketSingleShipment la libera para el resumen, el PRO
+ * la incluye y SUNAT rechaza TODO el lote con 2282.
+ *
+ * Qué hace, por cada boleta "Por regularizar" de las fechas que se van a resumir:
+ *   1. La consulta en SUNAT (consulta de validez) con los datos del PRO (tipo, serie, número, fecha, total).
+ *   2. Solo si SUNAT responde ACEPTADA (estadoCp 1/3):
+ *      - Faqture: si está en 'Y' pasa a 'E' (en modos 'report' y 'on'; es la verdad fiscal confirmada por SUNAT).
+ *      - PRO: modo 'on' la marca '05' (igual que el botón "Regularizar" del PRO, que solo cambia 01→05; verificado),
+ *        así el PRO ya no la incluye en el resumen. Modo 'report' no escribe en el PRO (solo lo registra en consola).
+ *   3. Si SUNAT no la tiene, o la consulta falla, NO se toca: va en el resumen como cualquier pendiente.
+ * Nunca lanza: ante cualquier error devuelve lo hecho hasta ese punto y la tarea continúa con el envío normal.
+ *
+ * @returns {{ mode: string, checked: number, regularized: string[], wouldRegularize: string[], faqtureConfirmed: number,
+ *             notAccepted: Array<{doc: string, estadoCp: string}>, errors: Array<{doc: string, reason: string}> }}
+ */
+const preventBlockersBeforeSummaries = async (company, dates, effectiveBoletaTypes) => {
+    const out = { mode: 'off', checked: 0, regularized: [], wouldRegularize: [], faqtureConfirmed: 0, notAccepted: [], errors: [] };
+    try {
+        const types = (effectiveBoletaTypes || []).map(String).filter(t => ['03', '07', '08'].includes(t));
+        const validDates = [...new Set((dates || []).filter(d => isValidIsoDate(d)))];
+        if (!isValidTenant(company?.tenant) || !company?.url || !company?.company_number || types.length === 0 || validDates.length === 0) return out;
+
+        out.mode = await getProRegularizeMode();
+        if (out.mode === 'off') return out;
+
+        const pro = await getFlaggedBoletasFromPro(company.url, validDates);
+        if (!pro.success) return out; // PRO/MySQL no disponible: no se concluye nada, sigue el flujo normal
+        const flagged = (pro.rows || []).filter(r => types.includes(String(r.document_type_id)) && validDates.includes(String(r.date_of_issue)));
+        if (flagged.length === 0) return out;
+
+        // 1. Confirmación en SUNAT (solo ACEPTADA cuenta)
+        const accepted = [];
+        for (const r of flagged.slice(0, MAX_PREVENTIVE_CHECKS)) {
+            const key = docKey(r.series, r.number);
+            if (!key) continue;
+            try {
+                const res = await isAcceptedOnSunat(company, r.date_of_issue, { type: r.document_type_id, serie: r.series, numero: r.number, amount: r.total });
+                out.checked++;
+                if (res.accepted) {
+                    accepted.push({ key, date: String(r.date_of_issue), document_type_id: String(r.document_type_id), series: String(r.series).trim().toUpperCase(), number: Number(r.number) });
+                } else {
+                    out.notAccepted.push({ doc: key, estadoCp: res.estadoCp });
+                }
+            } catch (error) {
+                out.errors.push({ doc: key, reason: `no se pudo consultar SUNAT: ${error.message}` });
+            }
+        }
+        if (accepted.length === 0) return out;
+
+        // 2. Faqture: las que siguen en 'Y' pasan a 'E' (SUNAT confirmó ACEPTADA)
+        const acceptedByDate = new Map();
+        for (const a of accepted) {
+            if (!acceptedByDate.has(a.date)) acceptedByDate.set(a.date, new Set());
+            acceptedByDate.get(a.date).add(a.key);
+        }
+        for (const [date, keys] of acceptedByDate) {
+            const yRows = await selectYBoletasForDate(company.tenant, date, types);
+            for (const row of yRows) {
+                if (!keys.has(docKey(row.serie, row.numero))) continue;
+                const ok = await mergeResponseSend(company.tenant, row, {
+                    success: true,
+                    state: 'E',
+                    state_type_id: '05',
+                    state_type_description: 'Aceptado',
+                    message: 'Regularizado: SUNAT confirma el comprobante ACEPTADO (el PRO lo tenía "Por regularizar" por un error de respuesta en el envío individual)',
+                    regularized_at: new Date().toISOString(),
+                }, 'E');
+                if (ok) out.faqtureConfirmed++;
+            }
+        }
+
+        // 3. PRO: sacarlas del resumen marcándolas '05' (solo modo 'on')
+        if (out.mode === 'report') {
+            out.wouldRegularize = accepted.map(a => a.key);
+            console.log(`[Summary Reconcile] ${company.tenant} [modo report] prevención 2282: en el PRO se regularizarían (05): ${out.wouldRegularize.join(', ')}`);
+            return out;
+        }
+
+        const write = await setBoletasAcceptedInPro(company.url, accepted);
+        if (!write.success) {
+            accepted.forEach(a => out.errors.push({ doc: a.key, reason: `no se pudo escribir en el PRO: ${write.message}` }));
+            return out;
+        }
+        for (const a of accepted) {
+            const r = (write.results || []).find(x => x.key === `${a.series}-${a.number}`);
+            if (r && r.affectedRows === 1) out.regularized.push(a.key);
+            else out.errors.push({ doc: a.key, reason: r?.error ? `error MySQL: ${r.error}` : 'el PRO no actualizó la fila (ya no estaba en 01/03)' });
+        }
+
+        if (out.regularized.length > 0) {
+            console.log(`[Summary Reconcile] ${company.tenant} prevención 2282: regularizadas en el PRO (05, confirmadas en SUNAT): ${out.regularized.join(', ')}`);
+            logReconcileInfo(company.tenant, 'Resumen diario: boletas ya aceptadas en SUNAT regularizadas en el PRO antes del envío (prevención 2282)', {
+                fechas: [...acceptedByDate.keys()],
+                regularizadas: out.regularized,
+                no_regularizadas: out.errors,
+                motivo: 'El PRO las tenía "Por regularizar" (error de respuesta en el envío individual) y SUNAT confirma que están ACEPTADAS. Se marcaron Aceptado (05) en el PRO, igual que el botón "Regularizar", para que no bloqueen el resumen.',
+            });
+        }
+        return out;
+    } catch (error) {
+        console.error(`[Summary Reconcile] Error en la prevención de bloqueantes (2282) en ${company?.tenant}:`, error.message);
+        return out;
+    }
+};
+
+/**
  * Registra un rechazo de resumen en las boletas 'Y' de la fecha (sin cambiar su estado) y notifica una sola vez por ticket.
  * NUNCA marca 'R': un resumen rechazado es un rechazo del LOTE, no de cada boleta (ej. 2282 por una sola boleta ya informada).
  * Marcar 'R' impediría reintentarlas (regla del proyecto) y enviaría alertas falsas.
@@ -645,6 +773,7 @@ module.exports = {
     collectBlockerCandidates,
     confirmInformedDocsOnSunat,
     regularizeBlockersInPro,
+    preventBlockersBeforeSummaries,
     getProRegularizeMode,
     recordSummaryRejection,
     shouldSkipResend,
