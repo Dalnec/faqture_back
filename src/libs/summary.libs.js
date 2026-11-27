@@ -5,7 +5,7 @@ const { resetTicketSingleShipment } = require('./connection');
 const { notifyError } = require('./logger');
 const { parseJsonField } = require('./json.libs');
 const { revertOriginalsOfRejectedCreditNotes } = require('./creditNotes.libs');
-const { classifySummaryStatus, applySummaryStatus, reconcileDateWithPro, recordSummaryRejection, shouldSkipResend } = require('./summaryReconcile.libs');
+const { classifySummaryStatus, applySummaryStatus, reconcileDateWithPro, recordSummaryRejection, shouldSkipResend, preventBlockersBeforeSummaries } = require('./summaryReconcile.libs');
 
 /**
  * Valida formato de fecha ISO YYYY-MM-DD.
@@ -461,6 +461,11 @@ const processSummariesAndPendingForCompany = async (company, options = {}) => {
 
             if (datesToProcess.length > 0) {
                 console.log(`[Summary Libs] ${company.tenant} procesando resúmenes (${effectiveBoletaTypes.join(',')}) en ${datesToProcess.length} fechas:`, datesToProcess);
+
+                // Prevención del 2282: las boletas que el PRO dejó "Por regularizar" pero SUNAT ya aceptó se sacan del
+                // resumen (05 en el PRO, según el modo de Configuración) ANTES de enviarlo. Ver summaryReconcile.libs.js.
+                const prevention = await preventBlockersBeforeSummaries(company, datesToProcess, effectiveBoletaTypes);
+                summaryStats.boletasRegularized += prevention.faqtureConfirmed;
 
                 for (const date of datesToProcess) {
                     // No reenviar si el ticket sigue en proceso o si la fecha está bloqueada por un rechazo previo

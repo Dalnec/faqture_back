@@ -245,6 +245,48 @@ const resetTicketSingleShipment = async (url = '') => {
 };
 
 /**
+ * SOLO LECTURA. Boletas (y notas de boleta) que el PRO tiene en '01' (Registrado) con la marca "Por regularizar"
+ * (regularize_shipping = 1): el PRO las envió individualmente a SUNAT y recibió un error de respuesta
+ * (ej. "HTTP - Error Fetching http headers", 0132, 0133). SUNAT a veces SÍ las aceptó; si el PRO las incluye en el
+ * resumen diario, SUNAT rechaza todo el lote con 2282. Columnas verificadas en el MySQL real del PRO (nov-2026).
+ * La fecha se devuelve como texto 'YYYY-MM-DD' (DATE_FORMAT) para no depender de la zona horaria del servidor.
+ * @param {string} url URL del PRO
+ * @param {string[]} dates fechas 'YYYY-MM-DD'
+ * @returns {Promise<{ success: boolean, message?: string, rows: Array<{document_type_id, series, number, date_of_issue, total}> }>}
+ */
+const getFlaggedBoletasFromPro = async (url = '', dates = [], limit = 200) => {
+    const validDates = [...new Set((Array.isArray(dates) ? dates : []).map(String).filter(d => /^\d{4}-\d{2}-\d{2}$/.test(d)))];
+    const max = Math.min(Math.max(parseInt(limit, 10) || 200, 1), 500);
+    if (!url || validDates.length === 0) return { success: false, message: 'Sin URL o sin fechas válidas', rows: [] };
+
+    let conn;
+    try {
+        conn = await create_mysql_connection(url);
+        const rows = await new Promise((resolve, reject) => {
+            conn.query(
+                `SELECT document_type_id, series, number, DATE_FORMAT(date_of_issue, '%Y-%m-%d') AS date_of_issue, total
+                   FROM documents
+                  WHERE date_of_issue IN (?)
+                    AND state_type_id = '01'
+                    AND regularize_shipping = 1
+                    AND document_type_id IN ('03', '07', '08')
+                    AND series LIKE 'B%'
+                  ORDER BY date_of_issue ASC, id ASC
+                  LIMIT ?`,
+                [validDates, max],
+                (error, result) => (error ? reject(error) : resolve(result || []))
+            );
+        });
+        return { success: true, rows };
+    } catch (err) {
+        console.warn(`[getFlaggedBoletasFromPro] No se pudo consultar el MySQL del PRO ${url}:`, err.message);
+        return { success: false, message: err.message, rows: [] };
+    } finally {
+        if (conn) { try { conn.end(); } catch (e) {} }
+    }
+};
+
+/**
  * Tarea 5 - Parte 2: marca como ACEPTADO ('05') en el PRO boletas que SUNAT ya tiene aceptadas
  * (reportadas como "ya informadas" en un rechazo 2282) y que el PRO sigue mostrando como '01'/'03'.
  * Mientras sigan en '01', el PRO las vuelve a incluir en cada resumen y SUNAT rechaza toda la fecha.
@@ -289,4 +331,4 @@ const setBoletasAcceptedInPro = async (url = '', docs = []) => {
     }
 };
 
-module.exports = { update_doc_api, checkConnection, listReportDocuments, resetTicketSingleShipment, setBoletasAcceptedInPro };
+module.exports = { update_doc_api, checkConnection, listReportDocuments, resetTicketSingleShipment, setBoletasAcceptedInPro, getFlaggedBoletasFromPro };

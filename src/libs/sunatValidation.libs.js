@@ -208,6 +208,9 @@ const validateVoucherOnSunat = async ({ ruc, codigoComp, serie, numero, fechaEmi
         const message = details?.message || details?.error || error.message;
         const wrapped = new Error(`Error validando comprobante en SUNAT: ${message}`);
         wrapped.details = details;
+        // Código HTTP de SUNAT (undefined si no hubo respuesta: timeout, red). Permite distinguir una caída de SUNAT
+        // de un rechazo por datos del comprobante.
+        wrapped.status = error?.response?.status;
         throw wrapped;
     }
 };
