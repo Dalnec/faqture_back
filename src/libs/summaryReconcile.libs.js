@@ -449,6 +449,23 @@ const regularizeBlockersInPro = async (company, date, informedDocs, sunatCache =
 const MAX_PREVENTIVE_CHECKS = 200;
 
 /**
+ * Freno ante una caída de SUNAT: tras N consultas seguidas sin respuesta de SUNAT se deja de consultar en esta empresa
+ * (cada consulta puede esperar hasta 30 s y las empresas se procesan una tras otra). Las no revisadas van al resumen
+ * como siempre y, si llega un 2282, actúa el flujo reactivo. Solo cuentan las caídas, no los rechazos por datos.
+ */
+const MAX_CONSECUTIVE_SUNAT_OUTAGES = 3;
+
+/**
+ * true si el error indica que SUNAT no respondió (timeout, red, token) o falló del lado del servidor (5xx, 429).
+ * Un 4xx (salvo 429) es un rechazo por datos del comprobante: SUNAT sí está respondiendo.
+ */
+const isSunatOutage = (error) => {
+    const status = Number(error?.status);
+    if (!Number.isInteger(status) || status === 0) return true;
+    return status >= 500 || status === 429;
+};
+
+/**
  * Registro de auditoría en system_logs con nivel 'info' (visible en el módulo de logs como "Información").
  * No usa notifyError: no es un error y no debe disparar Telegram/Discord ni el contador de errores del front.
  */
@@ -476,11 +493,11 @@ const logReconcileInfo = (tenant, type, payload) => {
  *   3. Si SUNAT no la tiene, o la consulta falla, NO se toca: va en el resumen como cualquier pendiente.
  * Nunca lanza: ante cualquier error devuelve lo hecho hasta ese punto y la tarea continúa con el envío normal.
  *
- * @returns {{ mode: string, checked: number, regularized: string[], wouldRegularize: string[], faqtureConfirmed: number,
+ * @returns {{ mode: string, checked: number, interrupted: boolean, regularized: string[], wouldRegularize: string[], faqtureConfirmed: number,
  *             notAccepted: Array<{doc: string, estadoCp: string}>, errors: Array<{doc: string, reason: string}> }}
  */
 const preventBlockersBeforeSummaries = async (company, dates, effectiveBoletaTypes) => {
-    const out = { mode: 'off', checked: 0, regularized: [], wouldRegularize: [], faqtureConfirmed: 0, notAccepted: [], errors: [] };
+    const out = { mode: 'off', checked: 0, interrupted: false, regularized: [], wouldRegularize: [], faqtureConfirmed: 0, notAccepted: [], errors: [] };
     try {
         const types = (effectiveBoletaTypes || []).map(String).filter(t => ['03', '07', '08'].includes(t));
         const validDates = [...new Set((dates || []).filter(d => isValidIsoDate(d)))];
@@ -496,11 +513,19 @@ const preventBlockersBeforeSummaries = async (company, dates, effectiveBoletaTyp
 
         // 1. Confirmación en SUNAT (solo ACEPTADA cuenta)
         const accepted = [];
-        for (const r of flagged.slice(0, MAX_PREVENTIVE_CHECKS)) {
+        const toCheck = flagged.slice(0, MAX_PREVENTIVE_CHECKS);
+        let consecutiveOutages = 0;
+        for (const r of toCheck) {
+            if (consecutiveOutages >= MAX_CONSECUTIVE_SUNAT_OUTAGES) {
+                out.interrupted = true;
+                console.warn(`[Summary Reconcile] ${company.tenant} prevención 2282 interrumpida: SUNAT no responde (${consecutiveOutages} consultas seguidas). Revisadas ${out.checked} de ${toCheck.length}; el resto va en el resumen como siempre.`);
+                break;
+            }
             const key = docKey(r.series, r.number);
             if (!key) continue;
             try {
                 const res = await isAcceptedOnSunat(company, r.date_of_issue, { type: r.document_type_id, serie: r.series, numero: r.number, amount: r.total });
+                consecutiveOutages = 0;
                 out.checked++;
                 if (res.accepted) {
                     accepted.push({ key, date: String(r.date_of_issue), document_type_id: String(r.document_type_id), series: String(r.series).trim().toUpperCase(), number: Number(r.number) });
@@ -508,6 +533,7 @@ const preventBlockersBeforeSummaries = async (company, dates, effectiveBoletaTyp
                     out.notAccepted.push({ doc: key, estadoCp: res.estadoCp });
                 }
             } catch (error) {
+                consecutiveOutages = isSunatOutage(error) ? consecutiveOutages + 1 : 0;
                 out.errors.push({ doc: key, reason: `no se pudo consultar SUNAT: ${error.message}` });
             }
         }
